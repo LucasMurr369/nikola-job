@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import random
 import sys
 import time
@@ -156,7 +157,8 @@ class Daemon:
     def __init__(self, paper: bool = True,
                  cash: float = cfg.PAPER_BUDGET_USD,
                  cycles: int = None, verbose: bool = False,
-                 live_key: str = "", live_secret: str = ""):
+                 live_key: str = "", live_secret: str = "",
+                 faith_tradition: str = "all"):
         self.paper = paper
         self.cycles = cycles
         self.verbose = verbose
@@ -165,7 +167,7 @@ class Daemon:
             self.state = PaperState(cash=cash)  # fresh clean slate
         self.cash = self.state.cash_usd
         self.engine = strat.DynamicRiskReward()
-        self.god_code = GodCodeAgent()
+        self.god_code = GodCodeAgent(faith_tradition=faith_tradition)
         self.mtf = sig.MTFEngine(signal_weights=sig.load_signal_weights())
         self.ex = ExchangeManager(paper=paper, cash_usd=self.cash,
                                   api_key=live_key, api_secret=live_secret)
@@ -343,6 +345,8 @@ class Daemon:
                           f"partial close {close_base:.4f} base "
                           f"({a.payload.get('partial', 0.4)*100:.0f}%), "
                           f"SL2 armed @ {pos.be_floor:.5f}")
+                print(f"    >> God Code adversity: "
+                      f"\"{self.god_code.quote_for_adversity(pair)}\"")
             elif a.action == "TP1_FILLED":
                 # Close 40% of base at TP1 (+1.4%), record realized leg.
                 close_base = pos.base_amount * a.payload.get("partial", 0.4)
@@ -884,6 +888,9 @@ def main():
     ap.add_argument("--depth", metavar="PAIR", help="Show depth chart for a pair")
     ap.add_argument("--godcode", action="store_true",
                     help="Print a God Code quote")
+    ap.add_argument("--faith-tradition", default="all",
+                    choices=["all", "christian", "universal", "secular"],
+                    help="God Code wisdom well to draw from (default: all)")
     ap.add_argument("--verbose", action="store_true",
                     help="Verbose state-machine actions")
     ap.add_argument("--log-level", default="INFO")
@@ -900,7 +907,10 @@ def main():
     # Credentials loaded from kraken.env. Live trading active via --live + DRY_RUN=False.
     live_key, live_secret = "", ""
     if args.live:
-        env_path = str(BASE_DIR.parent / "kraken_bot" / "kraken.env")
+        env_path = os.environ.get(
+            "NIKOLA_KRAKEN_ENV",
+            str(BASE_DIR.parent / "kraken_bot" / "kraken.env"),
+        )
         try:
             live_key, live_secret = load_kraken_env(env_path)
         except FileNotFoundError:
@@ -916,7 +926,7 @@ def main():
         print("=" * 68)
 
     if args.godcode and not args.status and not args.once and not args.depth:
-        g = GodCodeAgent()
+        g = GodCodeAgent(faith_tradition=args.faith_tradition)
         q, src = g.current_quote
         print(f"\n  >> God Code -- {src}")
         print(f'  "{q}"')
@@ -942,7 +952,8 @@ def main():
         return
 
     d = Daemon(paper=paper, cash=cfg.PAPER_BUDGET_USD, cycles=args.cycles,
-               verbose=args.verbose, live_key=live_key, live_secret=live_secret)
+               verbose=args.verbose, live_key=live_key, live_secret=live_secret,
+               faith_tradition=args.faith_tradition)
     if args.once:
         d.run_once()
     else:

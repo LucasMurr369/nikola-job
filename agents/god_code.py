@@ -2,16 +2,19 @@
 Nikola — God Code Agent.
 
 Ported from the already-built GodCodeAgent in build_hermes_v2.py (lines 1069-1278).
-The God Code is an ethical guardrail that cycles pre-Nicene public-domain wisdom
-texts and emits a **quote** for each trading event — turning the paper ledger
-into a video-game experience where the trader levels up while the God Code speaks.
+The God Code is an ethical guardrail that cycles public-domain wisdom and emits a
+**quote** for each trading event — turning the ledger into a video-game experience
+where the trader levels up while the God Code speaks.
 
-Key differences from the v2 port:
-- Stripped the webhook/message-bus dependency (Nikola is single-process).
-- Added ``quote_for_trade`` / ``quote_for_levelup`` / ``quote_for_cycle`` —
-  gamified quote delivery that the CLI displays.
-- Kept the ethical evaluation (``evaluate_action``) and veto system intact.
-- TEXTS are public-domain pre-Nicene passages (unchanged).
+Faith-tradition support — "include all God did":
+  - ``christian``  : JESUS-centered encouragement (perseverance, trust, peace).
+  - ``universal``  : pre-Nicene wisdom from all old religions (Egyptian,
+                     Zoroastrian, Taoist, Hindu, Buddhist, Greco-Roman, Jewish).
+  - ``secular``    : trading-resilience virtue maxims (humility, patience, risk).
+  - ``all``        : draws from every well (default).
+
+Users restrict the well via the ``--faith-tradition`` CLI flag. All source texts
+are public domain or widely-attributed maxims; nothing proprietary.
 """
 from __future__ import annotations
 
@@ -19,63 +22,147 @@ import random
 import time
 from typing import Dict, List, Optional, Tuple
 
+
 # ---------------------------------------------------------------------------
-# Pre-Nicene wisdom passages (public domain) — ported verbatim from build_hermes_v2.py
+# Wisdom wells — public domain / widely-attributed
 # ---------------------------------------------------------------------------
 TEXTS: List[Dict] = [
-    {"title": "Egyptian Book of the Dead (pre-Nicene)",
-     "passages": [
-        "I have not caused pain.",
-        "I have not caused hunger.",
-        "I have not polluted the water.",
-        "I have not stolen.",
-        "I have not caused suffering.",
-    ]},
-    {"title": "Avesta — Gathas of Zarathustra (pre-Nicene)",
-     "passages": [
-        "Let the wise choose truth.",
-        "Do not give pain to any living being.",
-        "Good thoughts, good words, good deeds.",
-        "The earth is a garden; do not poison it.",
-    ]},
-    {"title": "Tao Te Ching — Lao Tzu (pre-Nicene era)",
-     "passages": [
-        "The Tao does not compete.",
-        "Water benefits all things without contention.",
-        "He who knows others is wise; he who knows himself is enlightened.",
-        "The more laws and orders are made prominent, the more thieves and robbers there will be.",
-    ]},
-    {"title": "Early Upanishadic fragments (pre-Nicene)",
-     "passages": [
-        "From the unreal lead me to the real.",
-        "The self is the same in all beings.",
-        "He who sees all beings in the self, and the self in all beings, knows no fear.",
-    ]},
-    {"title": "Dhammapada — early Buddhist discourses (pre-Nicene)",
-     "passages": [
+    # ---- Christian (JESUS-centered) ----
+    {
+        "tradition": "christian",
+        "title": "Holy Bible — encouragement in Christ",
+        "passages": [
+            "The Lord is my shepherd; I shall not want.",
+            "I can do all things through Christ who strengthens me.",
+            "Do not be anxious about anything, but in all things by prayer let your requests be made known to God.",
+            "The Lord is close to the brokenhearted and saves the crushed in spirit.",
+            "Be strong and courageous. Do not fear or be in dread, for the Lord your God goes with you.",
+            "Trust in the Lord with all your heart, and do not lean on your own understanding.",
+            "Cast all your anxiety on him, because he cares for you.",
+            "The peace of God, which surpasses all understanding, will guard your hearts and minds.",
+            "Let us not grow weary of doing good, for in due season we will reap, if we do not give up.",
+            "The steadfast love of the Lord never ceases; his mercies never fail.",
+        ],
+    },
+    # ---- Universal: pre-Nicene wisdom from all old religions ----
+    {
+        "tradition": "universal",
+        "title": "Egyptian Book of the Dead (pre-Nicene)",
+        "passages": [
+            "I have not caused pain.",
+            "I have not caused hunger.",
+            "I have not polluted the water.",
+            "I have not stolen.",
+            "I have not caused suffering.",
+        ],
+    },
+    {
+        "tradition": "universal",
+        "title": "Avesta — Gathas of Zarathustra (pre-Nicene)",
+        "passages": [
+            "Let the wise choose truth.",
+            "Do not give pain to any living being.",
+            "Good thoughts, good words, good deeds.",
+            "The earth is a garden; do not poison it.",
+        ],
+    },
+    {
+        "tradition": "universal",
+        "title": "Tao Te Ching — Lao Tzu (pre-Nicene era)",
+        "passages": [
+            "The Tao does not compete.",
+            "Water benefits all things without contention.",
+            "He who knows others is wise; he who knows himself is enlightened.",
+            "The more laws and orders are made prominent, the more thieves and robbers there will be.",
+        ],
+    },
+    {
+        "tradition": "universal",
+        "title": "Early Upanishadic fragments (pre-Nicene)",
+        "passages": [
+            "From the unreal lead me to the real.",
+            "The self is the same in all beings.",
+            "He who sees all beings in the self, and the self in all beings, knows no fear.",
+        ],
+    },
+    {
+        "tradition": "universal",
+        "title": "Dhammapada — early Buddhist discourses (pre-Nicene)",
+        "passages": [
+            "Hatred does not cease by hatred; it ceases by love.",
+            "All that we are is the result of what we have thought.",
+            "Better than a thousand hollow words is one word that brings peace.",
+        ],
+    },
+    {
+        "tradition": "universal",
+        "title": "Marcus Aurelius — Meditations (early Roman, pre-Nicene)",
+        "passages": [
+            "Waste no more time arguing what a good man should be.",
+            "Be tolerant with others and strict with yourself.",
+            "The happiness of your life depends upon the quality of your thoughts.",
+        ],
+    },
+    {
+        "tradition": "universal",
+        "title": "Socrates / Plato fragments (pre-Nicene)",
+        "passages": [
+            "The unexamined life is not worth living.",
+            "Do not do to others what would anger you if done to you.",
+            "The soul is more harmed by injustice than the body by punishment.",
+        ],
+    },
+    {
+        "tradition": "universal",
+        "title": "Hillel the Elder — Pirkei Avot (pre-Nicene Jewish tradition)",
+        "passages": [
+            "If I am not for myself, who is for me?",
+            "If I am only for myself, what am I?",
+            "The rest is commentary — go and learn.",
+        ],
+    },
+    # ---- Secular virtue: trading-resilience maxims ----
+    {
+        "tradition": "secular",
+        "title": "Trading-resilience virtue",
+        "passages": [
+            "The obstacle on the path becomes the path.",
+            "Slow is smooth. Smooth is fast.",
+            "Be fearful when others are greedy; be greedy when others are fearful.",
+            "The investor's worst enemy is himself.",
+            "Patience: the calm between signal and execution.",
+            "In the markets, humility is paid in full.",
+            "Capital preserved is profit earned.",
+            "Risk comes from not knowing what you are doing.",
+            "The trend is your friend; do not fight the tape.",
+        ],
+    },
+]
+
+# Adversity-specific wisdom — drawn at SL hits / drawdown moments, when a
+# trader most needs steadiness. Same three wells so the user's tradition
+# filter applies here too.
+ADVERSITY: Dict[str, List[str]] = {
+    "christian": [
+        "The Lord is close to the brokenhearted and saves the crushed in spirit.",
+        "Cast all your anxiety on him, because he cares for you.",
+        "Be strong and courageous. Do not fear or be in dread.",
+        "Let us not grow weary of doing good, for in due season we will reap.",
+    ],
+    "universal": [
         "Hatred does not cease by hatred; it ceases by love.",
-        "All that we are is the result of what we have thought.",
-        "Better than a thousand hollow words is one word that brings peace.",
-    ]},
-    {"title": "Marcus Aurelius — Meditations (early Roman, pre-Nicene)",
-     "passages": [
+        "The unexamined life is not worth living.",
         "Waste no more time arguing what a good man should be.",
         "Be tolerant with others and strict with yourself.",
-        "The happiness of your life depends upon the quality of your thoughts.",
-    ]},
-    {"title": "Socrates / Plato fragments (pre-Nicene)",
-     "passages": [
-        "The unexamined life is not worth living.",
-        "Do not do to others what would anger you if done to you.",
-        "The soul is more harmed by injustice than the body by punishment.",
-    ]},
-    {"title": "Hillel the Elder — Pirkei Avot (pre-Nicene Jewish tradition)",
-     "passages": [
-        "If I am not for myself, who is for me?",
-        "If I am only for myself, what am I?",
-        "The rest is commentary — go and learn.",
-    ]},
-]
+    ],
+    "secular": [
+        "Be fearful when others are greedy; be greedy when others are fearful.",
+        "The investor's worst enemy is himself.",
+        "Capital preserved is profit earned.",
+        "Slow is smooth. Smooth is fast.",
+        "In the markets, humility is paid in full.",
+    ],
+}
 
 
 class GodCodeAgent:
@@ -85,30 +172,56 @@ class GodCodeAgent:
     1. Cycles a passage every ``cycle_sec`` (default 300s) — a meditative quote.
     2. Emits a **trade quote** when a position opens/closes (gamification flavor).
     3. Emits a **level-up quote** when the trader gains a level or achievement.
-    4. Evaluates trade intent against the ethical checklist — vetoes profit
+    4. Emits an **adversity quote** at SL hits / drawdowns (steadiness under loss).
+    5. Evaluates trade intent against the ethical checklist — vetoes profit
        from harm (forced liquidations, misery arbitrage, exploitation).
+
+    ``faith_tradition`` scopes which wisdom well is drawn from:
+    ``all`` (default), ``christian``, ``universal``, or ``secular``.
     """
 
     # Ethical blocklist — profit from these is blocked
     HARM_KINDS = {"forced_liquidation", "misery_profit", "harm_exploitation"}
+    TRADITIONS = ("all", "christian", "universal", "secular")
 
-    def __init__(self, cycle_sec: int = 300, enabled: bool = True):
+    def __init__(self, cycle_sec: int = 300, enabled: bool = True,
+                 faith_tradition: str = "all"):
         self.enabled = enabled
         self.cycle_sec = cycle_sec
+        if faith_tradition not in self.TRADITIONS:
+            faith_tradition = "all"
+        self.faith_tradition = faith_tradition
         self._index = 0
         self._current_passage: str = ""
         self._current_title: str = ""
+        self._current_tradition: str = ""
         self._veto_active: bool = False
         self._veto_reason: str = ""
         self._gray_flags: List[Dict] = []
         self._last_cycle: float = 0.0
+        self._pool: List[Dict] = self._build_pool()
         self._cycle_passage()
+
+    # ---- well selection ----
+    def _build_pool(self) -> List[Dict]:
+        """Tradition-filtered passage pool (round-robin cycle over this)."""
+        if self.faith_tradition == "all":
+            return TEXTS
+        return [t for t in TEXTS if t["tradition"] == self.faith_tradition]
+
+    def _adversity_pool(self) -> List[str]:
+        """Tradition-filtered adversity well."""
+        if self.faith_tradition == "all":
+            return [q for qs in ADVERSITY.values() for q in qs]
+        return ADVERSITY.get(self.faith_tradition, [])
 
     # ---- passage cycling ----
     def _cycle_passage(self) -> None:
-        """Advance to a random passage from a random text."""
-        self._index = (self._index + 1) % len(TEXTS)
-        text = TEXTS[self._index]
+        """Advance to the next passage (round-robin through the well)."""
+        pool = self._pool or TEXTS
+        self._index = (self._index + 1) % len(pool)
+        text = pool[self._index]
+        self._current_tradition = text["tradition"]
         self._current_title = text["title"]
         self._current_passage = random.choice(text["passages"])
         self._last_cycle = time.time()
@@ -128,19 +241,36 @@ class GodCodeAgent:
         """Return (passage, source_title)."""
         return self._current_passage, self._current_title
 
+    @property
+    def current_tradition(self) -> str:
+        """Return the tradition tag of the current passage."""
+        return self._current_tradition
+
     def quote_for_trade(self, pair: str, direction: str, entry_r: float = 0.0) -> str:
         """A trade-specific quote — ties the God Code to the action."""
         return self._current_passage
 
+    def quote_for_adversity(self, pair: str = "", entry_r: float = 0.0) -> str:
+        """Steadiness quote — emitted at SL hits / drawdowns.
+
+        Filters the adversity well by the configured tradition; falls back to
+        the current passage if the well is somehow empty.
+        """
+        pool = self._adversity_pool()
+        return random.choice(pool) if pool else self._current_passage
+
     def quote_for_levelup(self, level: int, xp: int) -> str:
         """A level-up quote."""
-        # Pick a passage about growth / wisdom
         wisdom = [
             "The unexamined life is not worth living.",
             "Good thoughts, good words, good deeds.",
             "Better than a thousand hollow words is one word that brings peace.",
             "The more laws and orders are made prominent, the more thieves and robbers there will be.",
             "From the unreal lead me to the real.",
+            "I can do all things through Christ who strengthens me.",
+            "The steadfast love of the Lord never ceases; his mercies never fail.",
+            "In the markets, humility is paid in full.",
+            "The happiness of your life depends upon the quality of your thoughts.",
         ]
         return random.choice(wisdom)
 
@@ -177,7 +307,7 @@ class GodCodeAgent:
             decision["veto"] = True
             return decision
 
-        # Gray area → escalate (console log in Nikola's single-process model)
+        # Gray area -> escalate (console log in Nikola's single-process model)
         decision["action"] = "escalate"
         decision["reason"] = (f"gray-area ({harm_kind}); profit ${profit_usd:.2f} — "
                               f"awaiting judgment. '{self._current_passage}'")
@@ -202,9 +332,11 @@ class GodCodeAgent:
         """ASCII-formatted quote for the CLI header."""
         q = self._current_passage
         src = self._current_title
+        trd = self._current_tradition or "universal"
         return (
-            f"  ┌─ God Code ───────────────────────────────────────────\n"
+            f"  ┌─ God Code ───────────────────────────────────────────────────\n"
             f"  │  \"{q}\"\n"
             f"  │ — {src}\n"
-            f"  ╰─────────────────────────────────────────────────────"
+            f"  │   [{trd} | well={self.faith_tradition}]\n"
+            f"  ╰──────────────────────────────────────────────────────────────"
         )
