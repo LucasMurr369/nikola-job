@@ -1,0 +1,26 @@
+# --- Secrets: NEVER commit ---
+*.env
+.env*
+kraken.env
+!README_manage.md
+
+# --- Runtime / volatile state ---
+*.pid
+nikola_live.log*
+*.log
+data/
+engine/nonce_state.json
+nul
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
