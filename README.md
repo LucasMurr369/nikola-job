@@ -1,14 +1,49 @@
-# Nikola — Dynamic Risk-Reward Trading App
+# Nikola Utility Engine — Lightweight Local Risk Engine for Kraken Pro
 
-A clean, modular trading application built on the proven logic of the Hermes/Kraken
-margin bot (`live_margin_bot.py`) — re-engineered with an explicit **3-state Dynamic
-Risk-Reward** engine that treats 3:1 as a *minimum entry filter*, not a hard cap.
+**Zero-overhead, open-source Python trading engine** that replaces $30–$100+/month
+SaaS bots (3Commas, Cryptohopper, Kryll) with a single local script. Built to the
+**exact, battle-tested risk parameters** of the live Kraken Pro margin bot — no cloud
+fees, no UI lock-in, fully auditable.
+
+> **Keywords / SEO:** Kraken API · crypto trading bot · risk management ·
+> algorithmic trading · take-profit ladder · open source · CCXT · Python 3 ·
+> margin trading · multi-timeframe · trailing stop · 3:1 risk reward ·
+> break-even ratchet · stop loss · TP SL
+
+## Problem → Solution
+
+| | |
+|---|---|
+| **Problem** | 3Commas, Cryptohopper and similar SaaS bots charge **$30–$100+ per month**, lock you into their cloud, and hide the risk math behind an opaque UI you cannot audit. |
+| **Solution** | **Nikola** is a single local Python script (CCXT + stdlib) that runs on your own machine, costs **nothing to run**, and exposes every risk rule — stop-loss, take-profit ladder, break-even ratchet, trailing runner — as transparent, unit-testable code. |
+
+## Core Mechanics
+
+Nikola ports the *live* Kraken Pro BTNL margin parameters verbatim from
+`live_margin_bot.py` into `engine/config.py` (the source of truth).
+
+- **40 / 40 / 20 take-profit ladder** — TP1 exits **40%** at **+1.4%**; TP2 exits
+  **40%** at **+2.8%** (2× TP1 distance); the remaining **20%** rides a trailing stop.
+  *(BTC/ETH majors target +1.0%/+2.0%.)*
+- **Two-stage static stop-loss** — **SL1 at 2.10%** partially closes 40% of the base
+  (take-profits retained); **SL2 at 4.40%** exits the rest. The `SL_LIMIT_BAND_PCT =
+  1.5%` is the stop-limit **slippage band**, not the loss guard.
+- **Break-even ratchet** — once TP1 *and* TP2 both fill, SL snaps to the breakeven
+  floor (entry + 2.0%) so the runner is protected.
+- **Float protection** — 80% of every position is banked via the TP ladder before the
+  20% runner trails (0.30% → 0.60% wide at +2.5%), letting strong trends run while
+  profit is already off the table.
+
+> Verified directly against `engine/config.py` + `config/settings.yaml`. See
+> *The 3-State Model* below for the dynamic +3R extension.
+
+---
 
 ## Relationship to the live bot
 
 | Aspect | Live bot (`kraken_bot/`) | Nikola (`nikola/`) |
 |--------|--------------------------|---------------------|
-| Status | **Running** (PID 2045, Python312, live trades) | Standalone — paper mode by default, separate state |
+| Status | **Running** (PID 712, Python312, live trades) | Standalone — paper mode by default, separate state |
 | Code | Monolithic `live_margin_bot.py` (3467 lines) | Modular package: `engine/{signals, risk, strategy, exchange}` |
 | R:R | Fixed TP1/TP2 + trailing runner | 3-state machine: Monitor → Active → **Expanded** |
 | Data | `kraken_bot/data/` | `nikola/data/` (independently seeded) |
@@ -51,6 +86,8 @@ nikola/
 ├── nikola.py              # CLI launcher (--paper / --live / --once / --cycles / --export-html)
 ├── html_report.py         # --export-html report generator (stdlib-only)
 ├── donation_monitor.py    # Tithe / Offering / Donation addresses (incl. PayPal)
+├── ACTIVE_BOT.txt         # Anchor file: live PID + log path (instant startup lookup)
+├── archive/               # Retired test scripts + fixtures (out of the working path)
 ├── engine/
 │   ├── __init__.py
 │   ├── config.py          # Proven pair/leverage/TP/SL/MTF params (ported from bot)
