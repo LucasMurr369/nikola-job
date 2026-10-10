@@ -174,7 +174,18 @@ class Daemon:
         self.active: dict[str, strat.Position] = {}          # pair -> Position
         self.cooldowns: dict[str, float] = {}
         self.tick = 0
-        if paper:
+        # Quiet background operation: only re-print the status banner on a real
+        # state change (position opens/closes, trade closes) or a ~20-minute
+        # heartbeat (4 full scans) -- so the daemon can run unattended for weeks.
+        self._last_pos_count = None
+        self._last_trade_count = None
+        self._full_scans_since_status = 0
+        # Historical-sim mode: real engine on real candles (no synthetic mock).
+        self.sim_mode = False
+        self._sim_raw = {}
+        self._sim_idx = 0
+        self._sim_base_ms = 0
+        if paper and not self.sim_mode:
             seed_mock_candles()
 
     # -- display --
@@ -231,6 +242,7 @@ class Daemon:
         print(f"\n{'='*68}")
         print(f" NIKOLA :: Dynamic RR  |  {mode_str}  |  CYCLE {self.state.cycle}  "
               f"[{cycle_type}]")
+        print(f" [GUARDIAN ANGEL ACTIVE] -- watching over your process, assisting Nikola")
         print(f"{'='*68}")
         print(f"  [God Code x {src}]")
         print(f'  >> "{q}"')
@@ -678,6 +690,50 @@ class Daemon:
               f"realized=${realized:+.2f} open={len(self.active)} "
               f"scale={scale:.3f}x")
 
+    def _sync_state_positions(self) -> None:
+        """Mirror Daemon.active -> PaperState.positions so --export-html/--status
+        render mid-trade position geometry. Reporting-only: the live cycle uses
+        Daemon._equity() (not state.equity()), so trading behavior is unchanged.
+        Called before state.save(); rebuilds state.positions from Daemon.active."""
+        from engine.state import PaperPosition
+        self.state.positions = []
+        for _, pos in self.active.items():
+            tp = getattr(pos, "tp", None)
+            tp_ladder = []
+            if tp is not None:
+                tp_ladder = [
+                    {"level": 1, "price": float(tp.tp1_price),
+                     "size": float(tp.tp1_pct), "filled": bool(tp.tp1_filled)},
+                    {"level": 2, "price": float(tp.tp2_price),
+                     "size": float(tp.tp2_pct), "filled": bool(tp.tp2_filled)},
+                ]
+                if getattr(tp, "runner_pct", 0):
+                    tp_ladder.append({"level": 3, "size": float(tp.runner_pct),
+                                      "trailing": True})
+            cur = getattr(pos, "current_price", 0.0)
+            current = float(cur) if cur else (float(pos.peak_price) or float(pos.entry_price))
+            # R-multiple (profit / risk) for the --export-html geometry column
+            risk = float(getattr(pos, "risk_distance", 0.0) or 0.0)
+            if risk > 0:
+                r = (current - pos.entry_price) / risk if pos.direction == "LONG" \
+                    else (pos.entry_price - current) / risk
+            else:
+                r = 0.0
+            self.state.positions.append(PaperPosition(
+                pair=pos.pair, direction=pos.direction,
+                entry_price=float(pos.entry_price), base_amount=float(pos.base_amount),
+                leverage=int(pos.leverage), sl1_price=float(pos.sl1_price),
+                sl2_price=float(pos.sl2_price), tp_ladder=tp_ladder,
+                entry_time=pos.open_time or now_iso(),
+                signal_type=pos.signal_type or "UNKNOWN",
+                confidence=float(pos.confidence or 0.0),
+                state="active",
+                tp1_price=float(tp.tp1_price) if tp is not None else 0.0,
+                tp2_price=float(tp.tp2_price) if tp is not None else 0.0,
+                current_price=current,
+                r_multiple=float(r),
+            ))
+
     # -- budget: paper cash vs live exchange margin --
     def _deployable_budget(self) -> float:
         """Return the deployable budget for position sizing.
@@ -692,7 +748,9 @@ class Daemon:
     # -- full scan --
     def full_scan(self) -> None:
         """Refresh MTF signals, rank candidates, deploy top signal."""
-        if self.paper:
+        if self.sim_mode:
+            self._feed_sim_bars(self._sim_idx)   # real candles truncated to current bar (no lookahead)
+        elif self.paper:
             seed_mock_candles()  # re-seed so trends evolve per scan
         else:
             self.ex.refresh_mtf_candles()
@@ -804,9 +862,23 @@ class Daemon:
                     self._update_equity_scale()
                     if self.paper:
                         self._daily_snapshot()
+                        self._sync_state_positions()
                         self.state.save(PAPER_STATE_PATH)
-                    if is_full or self.tick % 5 == 0:
+                    # Quiet background operation: banner only on a real state
+                    # change (position open/close, trade close) or a ~20-minute
+                    # heartbeat (4 full scans). God Code cycle line still prints
+                    # every full scan (~5 min) as intended encouragement.
+                    pos_now = len(self.active)
+                    trd_now = len(self.state.trade_history)
+                    if is_full:
+                        self._full_scans_since_status += 1
+                    _state_changed = (pos_now != self._last_pos_count
+                                      or trd_now != self._last_trade_count)
+                    if _state_changed or self._full_scans_since_status >= 4:
                         self.display("SCAN" if is_full else "LIGHT")
+                        self._last_pos_count = pos_now
+                        self._last_trade_count = trd_now
+                        self._full_scans_since_status = 0
                 except Exception as e:
                     if 'nonce' in str(e).lower():
                         import engine.exchange as _ex
@@ -828,6 +900,7 @@ class Daemon:
                             if (not getattr(pos, 'sl2_set', False)
                                     and getattr(pos, 'entry_confirmed', False)):
                                 log.critical(f"{pair}: position open with no SL2 — "
+                                            f"[GUARDIAN ANGEL] enforcing protection: "
                                             f"triggering emergency close")
                                 btnl = f"{pair}:BTNL"
                                 close_side = "sell" if pos.direction == "LONG" else "buy"
@@ -838,7 +911,7 @@ class Daemon:
                                         params={"leverage": getattr(pos, 'leverage', 3),
                                                 "reduceOnly": True},
                                     )
-                                    log.info(f"EMERGENCY CLOSE (error handler): {close_side} {pos.base_amount} {btnl}")
+                                    log.info(f"[GUARDIAN ANGEL] emergency close: {close_side} {pos.base_amount} {btnl}")
                                 except Exception as e2:
                                     log.critical(f"EMERGENCY CLOSE FAILED: {e2} — position open, no SL!")
                                 self.active.pop(pair, None)
@@ -850,6 +923,7 @@ class Daemon:
         except KeyboardInterrupt:
             print("\n  STOPPED. Saving state...")
             if self.paper:
+                self._sync_state_positions()
                 self.state.save(PAPER_STATE_PATH)
 
     def run_once(self) -> None:
@@ -869,14 +943,130 @@ class Daemon:
             self.state.save(PAPER_STATE_PATH)
         self.display("ONCE")
 
+    # === Historical simulation: REAL live engine on REAL Kraken candles (fair test) ===
+    def _load_historical(self, days: float) -> None:
+        """Fetch real Kraken OHLCV for the window into the candle cache + price walk."""
+        import ccxt
+        ex = ccxt.kraken({"enableRateLimit": True, "rateLimit": 400, "timeout": 30000})
+        end_ms = int(time.time() * 1000)
+        start_ms = end_ms - int(days * 86400000)
+        self._sim_raw = {}
+        for pair in cfg.SYMBOLS:
+            self._sim_raw[pair] = {}
+            for tf in cfg.MTF_TIMEFRAMES:
+                ohlcv = ex.fetch_ohlcv(pair, timeframe=tf, since=start_ms, limit=720)
+                # ohlcv: [ts,open,high,low,close,volume] -> ints/floats
+                self._sim_raw[pair][tf] = [[int(c[0])] + [float(x) for x in c[1:6]] for c in ohlcv]
+            closes = [float(c[4]) for c in self._sim_raw[pair].get("15m", [])]
+            _MOCK[pair] = {"index": 0, "1m_prices": closes}
+        self._sim_base_ms = self._sim_raw[cfg.SYMBOLS[0]]["15m"][0][0]
+        # fresh clean $300 slate (Nikola.md)
+        self.state = PaperState(cash=cfg.PAPER_BUDGET_USD)
+        self.cash = cfg.PAPER_BUDGET_USD
+        self.active = {}
+        self.cooldowns = {}
+        self.mtf = sig.MTFEngine(signal_weights=sig.load_signal_weights())
+        self.cycles = None
+        print(f"[SIM] fetch done | {len(cfg.SYMBOLS)} pairs x {len(cfg.MTF_TIMEFRAMES)} TFs | end "
+              f"{datetime.fromtimestamp(end_ms/1000, tz=timezone.utc).isoformat()}")
+        print(f"[SIM] fresh $300 paper slate | paper-blocks {sorted(FOREIGN_PAIRS)} (live rule, not a cancel)")
 
-# ---------------------------------------------------------------------------
-# CLI
+    def _feed_sim_bars(self, idx: int) -> None:
+        """Truncate real candles to bars ending at the current sim time (no lookahead)."""
+        cutoff = self._sim_base_ms + idx * 15 * 60000
+        for pair in cfg.SYMBOLS:
+            for tf, raw in self._sim_raw.get(pair, {}).items():
+                keep = [c for c in raw if c[0] <= cutoff][-800:]
+                if keep:
+                    sig.set_candles(pair, tf, keep)
+
+    def _baselines(self) -> dict:
+        """Naive HODL vs Panic-bail over the same window (per-pair $20 margin @ listed lev)."""
+        hodl = panic = 0.0
+        pref = getattr(cfg, "PREFERRED_LEVERAGE", 3)
+        plev = getattr(cfg, "PAIR_LEVERAGE", {})
+        for pair in cfg.SYMBOLS:
+            bars = self._sim_raw[pair].get("15m", [])
+            if len(bars) < 2:
+                continue
+            entry = bars[0][4]
+            exit_p = bars[-1][4]
+            lev = plev.get(pair, pref)
+            notional = 20.0  # per-pair margin anchor for the naive comparison
+            hodl += (exit_p - entry) / entry * lev * notional
+            # Panic: bail the moment a 15m bar's LOW drops >=2.1% below entry
+            bail = entry * (1 - 0.021)
+            px = exit_p
+            for c in bars[1:]:
+                if c[3] <= bail:
+                    px = c[4]
+                    break
+            panic += (px - entry) / entry * lev * notional
+        return {"hodl": hodl, "panic": panic}
+
+    def run_sim(self, days: float) -> None:
+        """Replay the REAL live loop bar-by-bar over historical candles (no mock)."""
+        n = min((len(_MOCK[p]["1m_prices"]) for p in _MOCK if _MOCK[p]["1m_prices"]), default=0)
+        SCAN_EVERY = 20  # bars between full scans (~live cadence on 15m data)
+        print(f"[SIM] replaying {n} x 15m bars ({days}d) with the REAL engine rules\n")
+        for i in range(n):
+            self._sim_idx = i
+            self.state.cycle += 1
+            self.tick += 1
+            # advance master price walker to current bar (real 15m closes)
+            for p in _MOCK:
+                if _MOCK[p]["1m_prices"]:
+                    _MOCK[p]["index"] = min(i, len(_MOCK[p]["1m_prices"]) - 1)
+            # full scan every SCAN_EVERY bars (truncated real candles via _feed_sim_bars)
+            if i >= 60 and i % SCAN_EVERY == 0:
+                self.full_scan()            # sim_mode guard -> _feed_sim_bars (no mock seed)
+                self._update_equity_scale()
+            # step open positions every bar (real BE-ratchet / trailing / SL1-SL2 / cascade / exits)
+            if self.active:
+                for pair in list(self.active.keys()):
+                    price = current_mock_price(pair)
+                    pos = self.active[pair]
+                    pos.current_price = price
+                    votes = sig.compute_votes(pair)
+                    candles_1h = sig.load_candles(pair, "1h")
+                    atr = ind.get_atr(candles_1h, 14) if candles_1h else None
+                    actions = self.engine.step(pos, price, votes=votes, atr=atr)
+                    self._exec_actions(pair, pos, actions, price, votes, atr)
+            if i % 96 == 0:                 # daily snapshot
+                self._daily_snapshot()
+                self.state.save(PAPER_STATE_PATH)
+            if self.verbose and i % 48 == 0:
+                print(f"  sim bar {i}/{n} equity=${self._equity():.2f} active={len(self.active)} "
+                      f"scale={cfg.EQUITY_SCALE:.3f}x")
+        self.state.cash_usd = self._equity()
+        self.state.save(PAPER_STATE_PATH)
+        b = self._baselines()
+        eq = self._equity()
+        hist = self.state.trade_history
+        wins = sum(1 for t in hist if t.get("pnl_usd", 0) > 0)
+        if hist:
+            avg_r = sum(t.get("r_multiple", 0) for t in hist) / len(hist)
+            print(f"\n[SIM] END | equity=${eq:.2f} from $300 | trades={len(hist)} "
+                  f"(W{wins}/L{len(hist)-wins}) avgR={avg_r:+.2f} active={len(self.active)}")
+        else:
+            print(f"\n[SIM] END | equity=${eq:.2f} from $300 | trades=0 active=0")
+        print(f"[SIM] vs naive (per-pair $20 @ listed lev): HODL={b['hodl']:+.2f}  "
+              f"Panic={b['panic']:+.2f}  Nikola={eq-300:+.2f}  "
+              f"Edge_vs_Panic={eq-300-b['panic']:+.2f}")
 # ---------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(
         description="Nikola -- Dynamic Risk-Reward trading app "
-                    "(separate from live bot)")
+                    "(separate from live bot)",
+        epilog="Tithe / Offering / Donation (100% free, optional): "
+               "1) Click https://www.paypal.me/LucasMurr369  "
+               "2) Scan the PayPal QR embedded in `--export-html` reports  "
+               "3) Crypto: `python3 donation_monitor.py info`. See INSTRUCTIONS.md.\n\n"
+               "A Guardian Angel watches over your process and assists Nikola "
+               "(single foreground PID via nikola.pid; clean Ctrl+C shutdown; "
+               "auto-enforced protective stops). See INSTRUCTIONS.md.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     ap.add_argument("--paper", action="store_true", help="Paper mode (default)")
     ap.add_argument("--live", action="store_true",
                     help="Live Kraken orders (user-approved)")
@@ -894,6 +1084,15 @@ def main():
     ap.add_argument("--verbose", action="store_true",
                     help="Verbose state-machine actions")
     ap.add_argument("--log-level", default="INFO")
+    ap.add_argument("--simulate-window", default=None,
+                    help="HISTORICAL fair test: run the REAL live engine over past "
+                         "N days of real Kraken OHLCV on a clean $300 paper slate "
+                         "(e.g. 5d). No mock candles. HODL/Panic baselines included.")
+    ap.add_argument("--export-html", metavar="OUTPUT", nargs="?", const="nikola_report.html",
+                    default=None,
+                    help="Generate a single-file HTML performance report from the last "
+                         "data/paper_state.json and exit (no trading). Optional OUTPUT "
+                         "path; defaults to nikola_report.html.")
     args = ap.parse_args()
     setup_logging(args.log_level)
 
@@ -949,6 +1148,23 @@ def main():
         book = ex.fetch_order_book(args.depth, limit=5)
         print(f"\n  Depth Chart -- {args.depth}")
         print(depth_chart_text(book))
+        return
+
+    if args.simulate_window:
+        _days = float(args.simulate_window[:-1]) if args.simulate_window[-1] in "dDwWhHmM" else float(args.simulate_window)
+        d = Daemon(paper=True, cash=cfg.PAPER_BUDGET_USD, cycles=None,
+                   verbose=args.verbose, live_key=live_key, live_secret=live_secret,
+                   faith_tradition=args.faith_tradition)
+        d.sim_mode = True
+        d._load_historical(_days)
+        d.run_sim(_days)
+        return
+
+    if args.export_html:
+        from html_report import generate_html_report
+        out_path = generate_html_report(state_path=PAPER_STATE_PATH,
+                                        output_path=args.export_html)
+        print(f"  HTML report written: {out_path}")
         return
 
     d = Daemon(paper=paper, cash=cfg.PAPER_BUDGET_USD, cycles=args.cycles,

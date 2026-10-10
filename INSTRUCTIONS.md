@@ -49,6 +49,7 @@ python nikola.py --paper --faith-tradition all
 
 # 4. Watch the header cycle a God Code quote every ~5 minutes
 # 5. See positions open/close with simulated fills
+# 6. Snapshot performance: python nikola.py --export-html  (opens nikola_report.html)
 ```
 
 **That’s it. No accounts. No signup. Free.**
@@ -69,7 +70,7 @@ python nikola.py --live --faith-tradition christian   # WARNING: real orders
 | Exchange backend | `PaperExchange` (mock candles, simulated fills) | Real CCXT Kraken BTNL-margin |
 | Starting capital | `$300` clean slate (configurable) | Your real Kraken margin |
 | API keys | **None needed** | `kraken.env` (via `NIKOLA_KRAKEN_ENV`) |
-| Leverage | Simulated (same math) | 3x–5x (PAIR_LEVERAGE) |
+|| Leverage | Simulated (same math) | 3x–10x (config/settings.yaml — BTC/ETH uncap to 10x after $150 equity) |
 | Risk caps | Same state machine | Same state machine |
 | Order placement | Mock — paper trades only | **Real BTNL orders on Kraken** |
 
@@ -181,31 +182,101 @@ python nikola.py --live
 
 ## Donation (Optional — Free Either Way)
 
-Nikola is **100% free**. No ads. No subscriptions. No paywalls.
+Nikola is **100% free**. No ads. No subscriptions. No paywalls. No tips expected.
 
-If he helped you trade better and you want to support further development:
+If he helped you trade better and you want to give a **tithe or offering** back to fuel the project, you can. Nothing is required — free users get everything.
 
-> ✅ **Preferred:** Send any crypto back through **your own Kraken account** — Kraken doesn't let bots receive donations to their own trading accounts, so we collect addresses from you (the user). Your donation supports the project wallet, which funds the public repo + encouragement community.
+### How to give (a tithe, offering, or donation)
 
-To contribute an address to the project donation pool:
+**Nikola is 100% free.** Any tithe, offering, or donation is optional — free users get everything.
+
+**Three simple ways to give:**
+1. **Option 1 (Click):** open [paypal.me/LucasMurr369](https://www.paypal.me/LucasMurr369) in any browser. No app, no wallet, no signup.
+2. **Option 2 (Scan):** open the **PayPal QR** in your phone camera. `python nikola.py --export-html` embeds a scannable QR in the report; `python3 donation_monitor.py info` also prints the QR URL.
+3. **Option 3 (Crypto):** send any wallet / Kraken deposit memo / Lightning payment — run `python3 donation_monitor.py info` for every live address.
+
+| Way | How | Fees |
+|---|---|---|
+| **PayPal Tithe / Offering** *(no crypto wallet needed)* | [paypal.me/LucasMurr369](https://www.paypal.me/LucasMurr369) — or email `donations@nikola-bot.org`. The `--export-html` performance report embeds a scannable PayPal QR for desktop/mobile. | ~$0.30 + 2.9% (PayPal; optional for the donor) |
+| **Crypto (on-chain)** | Any Solana / Base / Arbitrum address, or any of the 28 Kraken BTNL margin pairs via your own Kraken account. Run `python3 donation_monitor.py info` to see every live address. | ~$0.0001–0.01 (network fee) |
+| **Intra-Kraken** | Send any asset to your own Kraken account; the bot watches the deposit memo. | 0% (Kraken-to-Kraken) |
+| **Lightning** *(opt-in)* | Self-custodied BTC via LND / LNbits. | ~$0.001 (routing fee) |
+| **Auto-donation** | Bot allocates 1% of realized paper profits to the project wallet automatically. | 0% |
+
+> ✅ **Preferred:** Send any crypto back through **your own Kraken account** — Kraken doesn't let bots receive donations to their own trading accounts, so we collect addresses from you (the user). Your tithe supports the project wallet, which funds the public repo + encouragement community.
+
+To contribute a crypto address to the project pool:
 ```
 Email: donations@nikola-bot.org   (or open a GitHub issue: "Donation address")
 Subject: "Donation: <currency> <your-kraken-deposit-address>"
 Example: "Donation: SOL 9xKp...AbC"
 ```
-Any currency, any chain — we accept Bitcoin, Ethereum, Solana, USDC/USDT (all chains), and yes, **any of the 28 margin pairs Nikola trades on Kraken**. No amount is too small. Nothing is required.
+Any currency, any chain — we accept Bitcoin, Ethereum, Solana, USDC/USDT (all chains), and yes, **any of the 28 margin pairs Nikola trades on Kraken**. No amount is too small.
 
-**No donation = no penalty. Free users get everything.**
+**No tithe, offering, or donation = no penalty. Free users get everything.**
+
+---
+
+## Sovereign Capital Stewardship
+
+> Nikola JOB is your **high-precision co-pilot, not a closed black box**. You
+> retain **total, sovereign control** over your capital at all times — the bot
+> never holds custody, never moves keys you did not approve, and never blocks
+> your right to intervene on the charts.
+
+### Intelligent Co-Pilot, Not a Closed Black Box
+Nikola is a co-pilot built for capital stewardship, not set-and-forget autopilot.
+Every position, order, and exit is fully auditable: strategy geometry, risk gates,
+and the live `data/paper_state.json` ledger are all visible on disk. The bot
+proposes and executes against a fixed, transparent rule set — you can always
+inspect, pause, or override on a moment's notice.
+
+### Manual Overrides & Chart Control
+You own the charts. You can freely **adjust limit prices** on open orders,
+**cancel any order**, or **market-close** a position directly on Kraken Pro
+**without breaking the bot** or corrupting state. Nikola does not lock you in —
+it monitors the exchange, never the other way around.
+
+### Seamless State Sync
+Because Nikola polls continuously, its next tick **detects a manual close (or any
+order amendment)** on the exchange, **records the realized outcome to history**,
+**frees the freed margin**, and **reverts cleanly to monitoring mode** — no stale
+position state, no double-count, no manual resync required.
+
+### Limit Order Mechanics
+On the exchange, a **limit sell placed at or below the active buyer bid executes
+immediately at the bid or better** ("at or better"). The bot relies on this only
+for controlled TP/SL execution at the exchange-native level; during strong
+momentum these `at-or-better` fills give **instant execution** without you
+lifting a finger. Limit buys placed at/above the ask behave symmetrically.
+
+### Position Exits vs. Active Orders
+Closing or market-selling an open position directly on **Kraken Pro** works
+seamlessly — the bot's next tick detects the position is gone and records the
+outcome. **While a trade is open, Nikola continuously enforces the required
+protective orders (SL1, SL2, TP1, TP2, and the trailing runner).** To exit a
+trade manually, **close the underlying position itself** (market-sell /
+flatten) rather than canceling individual protective orders mid-trade — the
+engine automatically re-places any protective order that goes missing, so
+piecemeal cancellation just triggers a brief flurry of re-placed stops.
+
+### Transparent System Safety
+Nikola runs as a **single, transparent foreground process** guarded by a PID
+lock file (`nikola.pid`). There are no hidden background zombie or ghost
+processes — the process you start is the only one running, and you can inspect
+it with `ps -p $(cat nikola.pid)`. Pressing **Ctrl+C (SIGINT)** cleanly saves
+state, releases the PID lock, and exits. If a previous instance crashed hard,
+`rm nikola.pid` before restarting.
 
 ---
 
 ## FAQ
 
 **Q: Is this safe?**
-A: Paper mode = zero risk. Live mode = real orders on **Kraken BTNL margin** (isolated 3–5x, capped exposure). Stops always on. God Code vetoes harmful setups.
+A: Paper mode = zero risk. Live mode = real orders on **Kraken BTNL margin** (isolated 3–10x, capped exposure). Stops always on. God Code vetoes harmful setups.
 
 **Q: What's BTNL?**
-A: Kraken's cross-margined altcoin pairs (e.g., `AAVE/USD:BTNL`, `DOT/USD:BTNL`). Nikola auto-registers all 28. Each gets 3–5x isolated margin — your maximum loss per trade is capped by SL2.
+A: Kraken's cross-margined altcoin pairs (e.g., `AAVE/USD:BTNL`, `DOT/USD:BTNL`). Nikola auto-registers all 28. Each gets 3–10x isolated margin — your maximum loss per trade is capped by SL2.
 
 **Q: Can I lose money I didn't mean to?**
 A: No. Paper mode is simulated. Live mode places orders only on pairs with active positions. Max positions = 3. Margin reserve = 25%. SL2 caps each trade at ≈4.4% of that position's margin.
@@ -214,7 +285,10 @@ A: No. Paper mode is simulated. Live mode places orders only on pairs with activ
 A: Paper first. Master the $300 growth. When you can explain why TP1 is at +1.4% without reading this file, you're ready.
 
 **Q: Where do I see the God Code quotes?**
-A: Top of every 15s light-cycle header. And at every SL1 hit (adversity quote: *"Be still, and know"* moments).
+|A: A God Code line cycles every ~5 minutes (full scan). The full status header is intentionally **quiet** - it prints only on a real state change (a position opens/closes, or a trade closes) or a ~20-minute heartbeat, so you can leave the bot running for weeks undisturbed. Quotes also fire at every SL1 hit (adversity: *"Be still, and know"* moments).
+
+**Q: Can I export a performance report?**
+|A: `python nikola.py --export-html` (or `--export-html report.html`) writes a single, self-contained `nikola_report.html` with your equity curve, performance summary, active trailing-stop geometry, a God Code quote, and a scannable PayPal Tithe QR. No trading runs - it snapshots your last `data/paper_state.json`.
 
 **Q: Can I change the faith tone?**
 A: `python nikola.py --faith-tradition {all|christian|universal|secular}` — default is `all` (wisdom from every well, all to God's glory).

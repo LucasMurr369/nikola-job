@@ -48,7 +48,9 @@ beyond it — the proven bot's runner logic formalised into an auditable state m
 
 ```
 nikola/
-├── nikola.py              # CLI launcher (--paper / --live / --once / --cycles)
+├── nikola.py              # CLI launcher (--paper / --live / --once / --cycles / --export-html)
+├── html_report.py         # --export-html report generator (stdlib-only)
+├── donation_monitor.py    # Tithe / Offering / Donation addresses (incl. PayPal)
 ├── engine/
 │   ├── __init__.py
 │   ├── config.py          # Proven pair/leverage/TP/SL/MTF params (ported from bot)
@@ -73,8 +75,11 @@ nikola/
 cd C:\Users\mrluk\nikola
 python -m pip install -r requirements.txt
 python nikola.py --once --paper    # single scan, paper mode, no orders sent
-python nikola.py --paper          # paper daemon (30s light / 300s full scan)
+python nikola.py --paper          # paper daemon (15s light / 300s full scan; quiet - status on state change + 20 min)
+python nikola.py --export-html    # snapshot to nikola_report.html (equity curve, TP/SL, God Code, PayPal Tithe QR)
 python nikola.py --live          # REAL orders (user-approved only)
+
+`--export-html` writes a single self-contained `nikola_report.html` (no trading). Optional Tithe / Offering / Donation via PayPal (paypal.me/LucasMurr369) - see INSTRUCTIONS.md and donation_monitor.py.
 ```
 
 ## Free-model usage (Hermes)

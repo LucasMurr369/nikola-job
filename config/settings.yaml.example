@@ -1,3 +1,9 @@
+# Nikola — DEFAULT CONFIG TEMPLATE (safe defaults; no secrets)
+# Copy to a local, gitignored config file to tune:
+#   cp config/settings.yaml.example config/settings.yaml
+# This template ships so the proven defaults are never lost. If no
+# config/settings.yaml exists, engine/config.py hardcoded defaults apply.
+# ---
 # Nikola — user-tunable settings
 # Mirrors the proven live-margin-bot parameters; overrides here take precedence.
 
@@ -5,7 +11,7 @@ mode: paper          # "paper" (simulated fills, $300 clean slate) | "live" (rea
 capital:
   paper_budget_usd: 300.0     # Nikola.md clean-state restart point
   live_budget_usd: 100.0      # mirrors live bot TOTAL_MARGIN_BUDGET_USD
-  margin_reserve_pct: 0.25    # 25% of budget held as cushion
+  margin_reserve_pct: 0.20    # 20% of budget held as cushion
   max_position_margin_usd: 20.0
   max_position_loss_usd: 10.0   # paper-mode fixed $ loss per trade
 
@@ -27,10 +33,13 @@ dynamic_rr:
   min_rr_gate: 3.0            # minimum 3:1 accepted at entry
 
 pairs:
+  # Leverage caps -- these OVERRIDE engine/config.py defaults. Technical users
+  # edit HERE to change caps; dynamic leverage stays automated by default.
+  # BTC/ETH uncap to 10x after $150 equity; floor 3x, cap 10x by default.
   leverage_floor: 3
   leverage_cap: 10
   preferred_leverage: 5
-  lev_unlock_equity_usd: 150.0  # BTC/ETH uncap to 10x after $150 equity
+  lev_unlock_equity_usd: 150.0  # BTC/ETH uncap to 10x after this equity
 
 # Three-leader model
 leaders: [BTC, ETH, XRP]

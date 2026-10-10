@@ -74,6 +74,39 @@ LEV_TIERS = [(0.60, 10), (0.50, 7), (0.40, 5), (0.0, 3)]
 MARGIN_TIERS = [(0.60, 20.0), (0.50, 15.0), (0.40, 10.0), (0.0, 5.0)]
 
 # ---------------------------------------------------------------------------
+# settings.yaml overlay -- technical users tune leverage caps here (config/
+# settings.yaml) without touching code. Hardcoded values above are the safe
+# defaults; YAML takes precedence when present. Dynamic leverage via
+# leverage_for() stays automated by default -- this only rebinds the knobs.
+# ---------------------------------------------------------------------------
+def _apply_settings_yaml() -> None:
+    try:
+        import yaml
+    except ImportError:  # PyYAML ships in requirements.txt; keep defaults if absent
+        return
+    cfg_file = CONFIG_DIR / "settings.yaml"
+    if not cfg_file.exists():
+        return
+    try:
+        with open(cfg_file, "r", encoding="utf-8") as f:
+            s = yaml.safe_load(f) or {}
+    except Exception:
+        return
+    pairs = s.get("pairs") or {}
+    global LEVERAGE_FLOOR, LEVERAGE_CAP, PREFERRED_LEVERAGE, LEV_UNLOCK_EQUITY_USD
+    if "leverage_floor" in pairs:
+        LEVERAGE_FLOOR = int(pairs["leverage_floor"])
+    if "leverage_cap" in pairs:
+        LEVERAGE_CAP = int(pairs["leverage_cap"])
+    if "preferred_leverage" in pairs:
+        PREFERRED_LEVERAGE = int(pairs["preferred_leverage"])
+    if "lev_unlock_equity_usd" in pairs:
+        LEV_UNLOCK_EQUITY_USD = float(pairs["lev_unlock_equity_usd"])
+
+
+_apply_settings_yaml()
+
+# ---------------------------------------------------------------------------
 # Two-stage stop-loss + TP ladder (user directive — current live config)
 # ---------------------------------------------------------------------------
 SL1_PCT = 0.0210          # -2.10% — partial close (40% of base), TPs retained

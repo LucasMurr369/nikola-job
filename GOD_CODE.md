@@ -42,7 +42,7 @@ Nikola carries wisdom from every source, all to God's glory — *"include all Go
 | Well | Source | Sample |
 |---|---|---|
 | **`christian`** | Holy Bible — encouragement in Christ | *"I can do all things through Christ who strengthens me."* (Phil 4:13) |
-| **`universal`** | Pre-Nicene wisdom from all old religions | *"Hatred does not cease by hatred; it ceases by love."* (Dhammapada) |
+| **`universal`** | Pre-Nicene wisdom + timeless thinkers (Tesla, Einstein, the Stoics) | *"Hatred does not cease by hatred; it ceases by love."* (Dhammapada) |
 | **`secular`** | Trading-resilience maxims | *"Be fearful when others are greedy; be greedy when others are fearful."* (Buffett) |
 | **`all`** (default) | Every well, cycled together | Wisdom streams to the same ocean |
 

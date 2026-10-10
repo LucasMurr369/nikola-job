@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 
@@ -143,6 +143,9 @@ class PaperPosition:
     sl2_price: float
     tp_ladder: List[Dict]
     entry_time: str
+    tp1_price: float = 0.0     # take-profit level 1 (for --export-html geometry)
+    tp2_price: float = 0.0     # take-profit level 2
+    r_multiple: float = 0.0    # current R-multiple (profit / risk), for reports
     state: str = "active"      # active | closed
     exit_price: float = 0.0
     exit_time: str = ""
@@ -178,7 +181,10 @@ class PaperState:
         data = {
             "cash_usd": self.cash_usd,
             "initial_cash_usd": self.initial_cash,
-            "active_positions": [],
+            # Persist OPEN positions so --export-html can render mid-trade
+            # floating reports and paper/live sessions resume cleanly.
+            "active_positions": [asdict(p) for p in self.positions
+                                 if p.state != "closed"],
             "trade_history": self.trade_history,
             "scoring": self.scoring,
             "activity_log": self.activity_log,
@@ -208,6 +214,13 @@ class PaperState:
                 st.mode = data.get("mode", "autonomous_paper")
                 st.started_at = data.get("started_at", now_iso())
                 st.trade_history = data.get("trade_history", [])
+                # Restore open positions (persisted for mid-trade reporting +
+                # clean paper/live resume). Robust to missing/extra fields.
+                _pf = {f.name for f in fields(PaperPosition)}
+                st.positions = [
+                    PaperPosition(**{k: v for k, v in _p.items() if k in _pf})
+                    for _p in data.get("active_positions", [])
+                ]
                 st.scoring = data.get("scoring", {})
                 st.activity_log = data.get("activity_log", [])
                 st.foreign_pairs = set(data.get("foreign_pairs", []))
@@ -272,7 +285,8 @@ class PaperState:
         return pos.pnl_usd
 
     def active_positions(self) -> List[PaperPosition]:
-        return [p for p in self.positions if p.state == "open"]
+        # "active" is the live open state (close_position sets "closed").
+        return [p for p in self.positions if p.state != "closed"]
 
     def equity(self) -> float:
         """Cash + mark-to-market value of open positions."""

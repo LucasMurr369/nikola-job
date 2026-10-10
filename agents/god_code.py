@@ -8,8 +8,9 @@ where the trader levels up while the God Code speaks.
 
 Faith-tradition support — "include all God did":
   - ``christian``  : JESUS-centered encouragement (perseverance, trust, peace).
-  - ``universal``  : pre-Nicene wisdom from all old religions (Egyptian,
-                     Zoroastrian, Taoist, Hindu, Buddhist, Greco-Roman, Jewish).
+  - ``universal``  : pre-Nicene wisdom and timeless thinkers (Egyptian,
+                     Zoroastrian, Taoist, Hindu, Buddhist, Greco-Roman, Jewish,
+                     plus Tesla, Einstein, and the Stoics).
   - ``secular``    : trading-resilience virtue maxims (humility, patience, risk).
   - ``all``        : draws from every well (default).
 
@@ -121,6 +122,36 @@ TEXTS: List[Dict] = [
             "The rest is commentary — go and learn.",
         ],
     },
+    # ---- Universal: timeless scientific & philosophical thinkers ----
+    {
+        "tradition": "universal",
+        "title": "Nikola Tesla — on energy & frequency",
+        "passages": [
+            "If you want to find the secrets of the universe, think in terms of energy, frequency and vibration.",
+            "If you understood the significance of the numbers 3, 6, and 9, you would have the key to the universe.",
+            "Each seed of the thing has the power to multiply itself.",
+        ],
+    },
+    {
+        "tradition": "universal",
+        "title": "Albert Einstein — on curiosity & the cosmos",
+        "passages": [
+            "Imagination is more important than knowledge.",
+            "The important thing is not to stop questioning. Curiosity has its own reason for existing.",
+            "Science without religion is lame, religion without science is blind.",
+            "The universe does not exist only for us, but for all of us.",
+        ],
+    },
+    {
+        "tradition": "universal",
+        "title": "Stoic maxims — Epictetus, Seneca, Marcus Aurelius",
+        "passages": [
+            "It is not things themselves that disturb us, but our opinions about them.",
+            "We suffer not from events, but from our judgments about them.",
+            "The pain is not from the thing itself, but from our opinion about it.",
+            "Difficulties are things that show what a man is.",
+        ],
+    },
     # ---- Secular virtue: trading-resilience maxims ----
     {
         "tradition": "secular",
@@ -154,6 +185,9 @@ ADVERSITY: Dict[str, List[str]] = {
         "The unexamined life is not worth living.",
         "Waste no more time arguing what a good man should be.",
         "Be tolerant with others and strict with yourself.",
+        "It is not things themselves that disturb us, but our opinions about them.",
+        "The pain is not from the thing itself, but from our opinion about it.",
+        "Difficulties are things that show what a man is.",
     ],
     "secular": [
         "Be fearful when others are greedy; be greedy when others are fearful.",
