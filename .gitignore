@@ -30,3 +30,9 @@ venv/
 # --- OS ---
 .DS_Store
 Thumbs.db
+
+# --- Utility / audit scripts (dev-only, not committed) ---
+check_exchange.py
+dry_run_patch_test.py
+verify_sl2.py
+scripts/

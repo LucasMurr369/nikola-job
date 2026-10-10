@@ -55,8 +55,8 @@ class TPRungs:
     tp1_price: float
     tp2_price: float
     tp1_pct: float = 0.40      # fraction of BASE at TP1
-    tp2_pct: float = 0.30      # fraction of BASE at TP2 (user 2026-10-07 reconfigure)
-    runner_pct: float = 0.30   # fraction of BASE that trails
+    tp2_pct: float = 0.40      # fraction of BASE at TP2 (mirrors TP1 — 40/40/20)
+    runner_pct: float = 0.20   # fraction of BASE that trails
     tp1_filled: bool = False
     tp2_filled: bool = False
     runner_trailing: bool = False

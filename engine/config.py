@@ -123,12 +123,12 @@ TRAIL_TRIGGER_RATIO = 0.0  # trail kicks in once any profit exists
 SL_LIMIT_BAND_PCT = 0.015  # stop-loss-limit slippage allowance
 BREAKEVEN_BUFFER_PCT = 0.02  # BE floor = entry + 2.0% (ratchets after TP1+TP2)
 
-# TP1 +1.4%/40% + TP2 +2.8%/30% (2× TP1 distance — user 2026-10-07)
-# Final 30% rides the trailing stop.
+# TP1 +1.4%/40% + TP2 +2.8%/40% (mirrors TP1, 2× TP1 distance — user 2026-10-07)
+# Final 20% rides the trailing stop.
 TP_RUNG_PCTS = [
     ("TP1", 0.40, 0.014),   # 40% of base @ +1.4%
-    ("TP2", 0.30, 0.028),   # 30% of base @ +2.8% = 2× TP1 distance (user 2026-10-07)
-]                           # Final 30% rides the trailing stop.
+    ("TP2", 0.40, 0.028),   # 40% of base @ +2.8% = 2× TP1 distance (mirrors TP1)
+]                           # Final 20% rides the trailing stop.
 
 # Bigger slower coins get closer targets (+1.0%/+2.0% books faster)
 MAJOR_TP_PCTS = {"BTC/USD": (0.010, 0.020), "ETH/USD": (0.010, 0.020)}
