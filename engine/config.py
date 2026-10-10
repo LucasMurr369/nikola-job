@@ -22,6 +22,25 @@ CONFIG_DIR = BASE_DIR / "config"
 PAPER_STATE_FILE = DATA_DIR / "paper_state.json"
 
 # ---------------------------------------------------------------------------
+# Community tithing / donations — customizable for forks and shares
+# ---------------------------------------------------------------------------
+# Default donation address for the Nikola project.  Community members who fork
+# this repository can replace the value below with their own wallet address so
+# that tithes flow to whoever maintains their fork, while the original project
+# keeps its default.  Simply change the string and commit — no other code
+# changes are required.
+#
+# Supported address formats (auto-linked by donation_monitor.py):
+#   - BTC:  bc1q... / 3xxxx / 1xxxx
+#   - ETH:  0x...
+#   - DOGE: D...  /  A...
+#   - LTC:  L...  /  l...  /  M...
+#   Set to "" (empty string) to disable the donation feature entirely.
+DONATION_ADDRESS: str = "bc1qxy2kgdygjrsqtzq2n0yrf29sdf7r2khsl2nf5x"
+DONATION_CHAIN: str = "BTC"       # blockchain label shown in --export-html / reports
+DONATION_NAME: str = "Nikola Project"  # display name for tithe messages
+
+# ---------------------------------------------------------------------------
 # Pair universe — 28-pair Kraken BTNL margin universe (user directive)
 # ---------------------------------------------------------------------------
 SYMBOLS = [
