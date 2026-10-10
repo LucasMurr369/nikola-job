@@ -6,14 +6,35 @@
 
 ---
 
+## 🆓 100% FREE & VOLUNTARY TITHING
+
+**Nikola is 100% free and open-source.** No subscriptions. No premium tiers.
+No SaaS lock-in. No competitor platform references or upsells. You can use
+it, modify it, or share it freely — the code is yours.
+
+If you find value in Nikola, or if someone shared it with you, **tithes and
+donations are entirely voluntary and completely free either way.** There is
+never any obligation to give. If you choose to contribute:
+
+> **Edit `DONATION_ADDRESS` in `engine/config.py`** to direct contributions to
+> yourself, or to the person who shared Nikola with you. It's a single line
+> change — no other code modifications required. Set it to `""` to disable
+> entirely. Full customization instructions below.
+
+---
+
 ## 🚨 READ THIS FIRST (The $300 Journey)
 
 ### Origin Story
 
-Nikola began with **$300**. Not $3,000. Not $30,000. Three hundred dollars —
-enough to learn, not enough to be reckless. Every parameter, every safeguard,
-every line of code exists because someone once lost real money chasing a
-get-rich-quick dream.
+Nikola began with **$300** during the great crypto market correction of 2026.
+What could have been a catastrophic drawdown — watching Bitcoin collapse from
+~$90K to under $80K, altcoins bleeding 30-50% in days — became a masterclass in
+capital preservation. The account dipped to **under $100** on multiple
+occasions. Instead of panic-scaling or chasing bounces, the engine kept
+positions tiny, took small stop-losses, and let the TP ladder bank 80% of every
+winner. By October, it had clawed back to green — **proving that small math
+done over time beats over-trading.**
 
 The math is simple and brutal:
 
@@ -28,20 +49,6 @@ The math is simple and brutal:
 **This is why the market is a graveyard of ego.** A single 75% drawdown — the
 kind that feels "recoverable" — demands a 300% gain to break even. Nikola's
 risk engine exists to make sure you never meet that math.
-
-### The Real Story
-
-Nikola was born on **$300**. During the great BTC pullback of 2026, the account
-dipped to **under $100**. Instead of panic-scaling or chasing bounces, the engine
-kept positions tiny, took small stop-losses, and let the TP ladder bank 80% of
-every winner. By October, it had clawed back to green — **proving that small math
-done over time beats over-trading.**
-
-| Milestone | Account | Key Lesson |
-|-----------|---------|------------|
-| Start | $300 | Size small, risk smaller |
-| BTC crash | <$100 | Stop-losses are protection, not failure |
-| Recovery | $300+ | 80% banked via TP ladder before runner trails |
 
 ### The Humble-Thyself Philosophy
 
@@ -61,7 +68,7 @@ between probability and patience. Nikola enforces this conversation in code:
 | **80% Banked Before Runner** | TP1 (40%) + TP2 (40%) = 80% banked before the 20% runner trails |
 | **Break-Even Ratchet** | After TP1 + TP2 fill, SL2 snaps to entry + 2.0% — runner is free |
 
-### Portfolio Balance
+### Portfolio Balance & Asset Protection
 
 Nikola does **not** spam 100 random positions. It holds **defensive anchors**
 alongside **high-beta runners**:
@@ -72,7 +79,12 @@ alongside **high-beta runners**:
 | **Beta Runners** | `DOT/USD`, `AVAX/USD`, `PEPE/USD` | High-momentum alts that amplify 1m/5m confluence signals |
 | **Leader Filters** | `BTC/USD`, `ETH/USD`, `XRP/USD` | Three-leader model gates alt deployment; BTC cascade guard |
 
-**ETH is user-owned** — Nikola never touches it. **SOL is user-owned** — never touched.
+**User-asset protection rules:** Nikola supports trading across all major
+margin pairs, but includes strict protection for long-term holdings.
+**ETH/USD and SOL/USD are designated user-designated long-term holdings** —
+Nikola **never deploys, closes, or modifies** these positions. The engine
+respects a configurable `HELD_PAIRS` list that ensures manual holdings remain
+untouched, regardless of mode (paper or live).
 
 ---
 
@@ -204,6 +216,24 @@ with dozens of sub-menus, it focuses on three essential functions:
          └─────────────────────────────────────────┘
 ```
 
+### Paper Mode vs. Live Exchange Mode
+
+Nikola operates in two modes — both use the exact same risk engine:
+
+| Mode | What Happens | API Keys Needed | Orders Sent? | Starting State |
+|------|-------------|-----------------|--------------|----------------|
+| **Paper Mode** (default) | Simulated fills against cached/cached candle data | ❌ No | ❌ No | $300 clean slate, 0 positions |
+| **Live Mode** (`--live`) | Real CCXT orders on your Kraken (or other CCXT exchange) | ✅ Yes | ✅ Yes | Reads real exchange margin & positions |
+
+**Paper mode** is the safe playground. Every trade is simulated — no money
+changes hands. Start here, validate the 3:1 R:R math, and build confidence
+before risking real capital. Paper mode starts at a clean slate: **$300 cash,
+0 positions, cycle 0**.
+
+**Live mode** connects to real exchanges. The engine reads your real free
+margin and deploys real orders using the **exact same parameters** validated in
+paper. The only switch is `--live`.
+
 ### Files
 
 | File | Purpose |
@@ -246,43 +276,6 @@ with dozens of sub-menus, it focuses on three essential functions:
 This re-anchors every trade at a **3:1 minimum** while letting strong trends
 extend far beyond it — the proven bot's runner logic formalised into an auditable
 state machine.
-
-### Relationship to the Live Bot
-
-| Aspect | Live bot (`kraken_bot/`) | Nikola (`nikola/`) |
-|--------|--------------------------|---------------------|
-| **Status** | **Running** (see `ACTIVE_BOT.txt` for current PID) | Standalone — paper mode by default, `--live` for real |
-| **Code** | Monolithic `live_margin_bot.py` | Modular package: `engine/{signals, risk, strategy, exchange}` |
-| **R:R** | Fixed TP1/TP2 + trailing runner | 3-state machine: Monitor → Active → **Expanded** |
-| **SL1** | Conviction-aware: 1m/5m candle close ≥ 1.5% adverse | Same — conviction gate prevents whipsaw |
-| **Sizing** | Dynamic equity-based: 1–8% of deployable budget | Same — no static $5–$20 caps |
-| **Leverage** | Max 20× (BTC/ETH at 7× until $150 equity) | Same |
-| **Data** | `kraken_bot/data/` | `nikola/data/` (independently seeded) |
-| **Execution** | Real Kraken BTNL margin orders | Paper first ($300 clean slate), `--live` for real |
-
-**The live bot is never touched by Nikola.** Nikola reads the same Kraken API keys
-but operates in paper mode (simulated fills) or, with explicit `--live` approval,
-routes real orders through its own CCXT session. Nikola's `ACTIVE_BOT.txt` anchor
-file points to the live bot's PID — read this file to check status instantly,
-**never scan the workspace.**
-
----
-
-## 🎯 QUICK START
-
-```bash
-cd C:\Users\mrluk\nikola
-python -m pip install -r requirements.txt
-python nikola.py --once --paper    # single scan, paper mode, no orders sent
-python nikola.py --paper          # paper daemon (15s light / 300s full scan)
-python nikola.py --export-html    # snapshot to nikola_report.html
-python nikola.py --live          # REAL orders (user-approved only)
-```
-
-**Paper mode** starts at a clean slate: **$300 cash, 0 positions, cycle 0**.
-No API keys required for paper mode.
-
-`--export-html` writes a single self-contained `nikola_report.html` (no trading).
 
 ---
 
@@ -371,17 +364,14 @@ high conviction.*
 
 ## 🪙 CUSTOMIZABLE COMMUNITY TITHING / DONATIONS
 
-Nikola is **100% free and open-source**. No subscriptions. No premium tiers.
-No paywalls.
-
-If this bot has helped you — or if you believe in the principle that tools
-should be free — tithes and donations are **entirely optional** and completely
-free either way.
+Nikola is **100% free and open-source**. If this bot has helped you, or if
+someone shared it with you, tithes and donations are **entirely voluntary**
+and **completely free either way**. There is never any obligation to give.
 
 ### How It Works
 
 Nikola includes a built-in tithe system via `donation_monitor.py`, supporting
-five donation methods:
+six donation methods:
 
 | Method | Cost to Donor | Setup |
 |--------|--------------|-------|
@@ -394,7 +384,7 @@ five donation methods:
 
 ### Customizing Your Fork
 
-**For community members who fork Nikola and want to route tithes to their own wallet:**
+**For community members who fork Nikola or received it from someone:**
 
 1. Open `engine/config.py`
 2. Find the `DONATION_ADDRESS` variable:
@@ -402,16 +392,17 @@ five donation methods:
 ```python
 # Default donation address for the Nikola project.  Community members who fork
 # this repository can replace the value below with their own wallet address so
-# that tithes flow to whoever maintains their fork, while the original project
-# keeps its default.  Simply change the string and commit — no other code
-# changes are required.
+# that tithes flow to whoever maintains their fork, or to the person who
+# shared Nikola with you.  Simply change the string and commit — no other code
+# changes are required.  Set to "" to disable tithes entirely.
 DONATION_ADDRESS: str = "bc1qxy2kgdygjrsqtzq2n0yrf29sdf7r2khsl2nf5x"
 DONATION_CHAIN: str = "BTC"       # blockchain label shown in --export-html / reports
 DONATION_NAME: str = "Nikola Project"  # display name for tithe messages
 ```
 
-3. Replace `DONATION_ADDRESS` with your own wallet address and update `DONATION_CHAIN`
-   and `DONATION_NAME` as appropriate.
+3. Replace `DONATION_ADDRESS` with your own wallet address — or the address of
+   the person who shared this bot with you — and update `DONATION_CHAIN` and
+   `DONATION_NAME` as appropriate.
 4. For deeper customization (Solana, Base, Arbitrum, Kraken memo, Lightning),
    edit the `DONATION_ADDRESSES` dict in `donation_monitor.py`.
 
@@ -428,13 +419,71 @@ hands that are open, not closed.
 
 ---
 
+## 🎨 SACRED GEOMETRY & THE VISION OF ALEX GREY
+
+Nikola's risk engine is built on mathematics: Pythagoras, Euclid, Fibonacci.
+These are not abstract curiosities — they are the language of the universe,
+the same geometry that the visionary artist **Alex Grey** paints in radiant
+color.
+
+Grey's work — *Sacred Mirrors*, *Net of Being*, *Theologue* — depicts the
+interconnectedness of all consciousness. His mandalas, his geometric
+overlays, his luminous figures show us that **we are created in the image of
+the Divine** — not as separate entities competing in a zero-sum game, but as
+nodes in a vast, interdependent web of Being.
+
+This is the deeper truth that Nikola's code encodes:
+
+> **The market is not your enemy. The market is a mirror.**
+>
+> Every trade is a chance to witness the sacred geometry of price and volume,
+> the Fibonacci spirals of fear and greed, the Pythagorean ratios of risk and
+> reward. When you trade with discipline — small positions, tight stops,
+> mathematical entries — you are not gambling. You are participating in the
+> divine order of exchange, the eternal dance of supply and demand that has
+> moved through humanity since the first merchants gathered in ancient
+> agorae.
+
+Grey's art reminds us that **all work is sacred** when done with awareness.
+Every candle analyzed, every SL placed, every TP banked — this is not merely
+profit-seeking. It is the practice of seeing clearly, acting decisively, and
+trusting the mathematics that governs all movement in the universe.
+
+May your trades be precise. May your stops be tight. And may you see, in every
+candle, the sacred geometry of a universe created in That image. — ### Dedication
+
+> **Authored by MSLM.**
+>
+> **Dedicated in loving memory of Mason and Silas.**
+>
+> Their curiosity, their love of beauty, their insatiable wonder at the
+> patterns of the world — these are the true inheritance that Nikola carries
+> forward. Every line of code is a small act of remembrance.
+
+---
+
+## 🎯 QUICK START
+
+```bash
+cd C:\Users\mrluk\nikola
+python -m pip install -r requirements.txt
+python nikola.py --once --paper    # single scan, paper mode, no orders sent
+python nikola.py --paper          # paper daemon (15s light / 300s full scan)
+python nikola.py --export-html    # snapshot to nikola_report.html
+python nikola.py --live          # REAL orders (user-approved only)
+```
+
+`--export-html` writes a single self-contained `nikola_report.html` (no trading).
+
+---
+
 ## ⚠️ DISCLAIMER
 
 - Nikola trades on **margin** — you can lose more than your initial deposit.
 - Past performance is not indicative of future results.
 - This is **not investment advice**. It is a mathematical system.
 - Test extensively in **paper trading mode** before going live.
-- ETH/USD and SOL/USD are held pairs in live mode — **never deployed or closed**.
+- ETH/USD and SOL/USD are user-designated long-term holdings — **never deployed or closed**.
 
 ---
 
