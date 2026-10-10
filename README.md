@@ -2,7 +2,7 @@
 
 > **"Humble Thyself: the market is vast, and ego is expensive."**
 >
-> *Zero-overhead, open-source Python trading engine that replaces $30–$100+/month SaaS bots (3Commas, Cryptohopper, Kryll) with a single local script. Built to the **exact, battle-tested risk parameters** of the live HERMES margin bot — no cloud, no subscriptions, no vendor lock-in.*
+> *Zero-overhead, open-source Python trading engine that replaces $30–$100+/month SaaS subscription bots with a single local script. Built to the **exact, battle-tested risk parameters** of the live HERMES margin bot — no cloud, no subscriptions, no vendor lock-in.*
 
 ---
 
@@ -46,9 +46,9 @@ The math is simple and brutal:
 | −75% | +300% |
 | −90% | +900% |
 
-**This is why the market is a graveyard of ego.** A single 75% drawdown — the
-kind that feels "recoverable" — demands a 300% gain to break even. Nikola's
-risk engine exists to make sure you never meet that math.
+**This is why humility is the trader's greatest asset.** A single 75% drawdown
+— the kind that feels "recoverable" — demands a 300% gain to break even.
+Nikola's risk engine is here to make sure you never have to lean on hope.
 
 ### The Humble-Thyself Philosophy
 
@@ -86,16 +86,63 @@ Nikola **never deploys, closes, or modifies** these positions. The engine
 respects a configurable `HELD_PAIRS` list that ensures manual holdings remain
 untouched, regardless of mode (paper or live).
 
+### The 28 Vetted Pairs: Institutional Depth Over Meme Chaos
+
+Nikola trades strictly **28 established, high-liquidity pairs** — never random
+meme coins, never low-cap pumps, never illiquid ghosts that trap retail traders
+in exitless pits.
+
+**Why these 28 and not 200?**
+
+Blockchain represents new digital financial rails — but the assets that thrive on them
+must still pass the same test every institutional trader has always used: **depth,
+history, and structural liquidity.** Nikola's 28-pair universe is curated to
+include only assets that:
+
+| Filter | Standard | Why It Matters |
+|--------|----------|----------------|
+| **Daily volume** | ≥ $50M 30-day average | Ensures you can enter and exit without slippage |
+| **Price history** | ≥ 2 years on major exchanges | Enough data for 4h timeframe convergence signals |
+| **Institutional custody** | Supported by major custodians | Not a rug-pull risk; real market depth |
+| **Margin eligibility** | Available on BTNL margin pairs | Must support leveraged trading on Kraken |
+
+For traditional and older investors: think of this like a **value investing
+screen** — Benjamin Graham wouldn't have bought shares of a company with no
+historical earnings, no auditor, and no institutional ownership. In the same way,
+Nikola won't touch a cryptocurrency without years of price history, billions in
+trading volume, and real institutional custody. The 28 pairs are the
+**blue-chip + proven cyclicals** of crypto: BTC, ETH, XRP, ADA, SOL, DOT,
+AVAX, PEPE, SHIB, TRX, and others that have survived multiple market cycles.
+
+Unproven meme coins and low-liquidity pumps are **excluded by design**. There
+may be 10,000 other cryptocurrencies — but fewer than 30 meet Nikola's
+institutional-grade bar.
+
 ---
 
 ## 📖 TRADING 101 & LANGUAGE OF MARKETS
 
-### Long vs. Short — Plain English
+### Long vs. Short — Everyday Analogies
 
-| Term | Plain Meaning | What Happens |
-|------|--------------|-------------|
-| **Long** | "Buying for growth" | You buy an asset now, hoping to sell it later for more. You profit if the price goes up. |
-| **Short** | "Borrowing to sell high, buying back lower" | You borrow an asset, sell it at today's high price, then buy it back later at a lower price. You profit if the price goes down. |
+**Long = buying low, selling high (you own the asset).**
+
+*Real-world example:* Imagine a vintage guitar shop during a recession. Foot traffic is
+low, competitors are panicking, and a rare 1959 Les Paul is sitting on the shelf for 30%
+below its true market value. You buy it, wait patiently through the downturn, and when
+the music scene recovers six months later, a touring musician offers you 40% above what
+you paid. You didn't invent anything — you simply held an asset that the world eventually
+recognized as worth more. **That is a long position.**
+
+**Short = borrowing high, selling now, buying back cheaper (you owe the asset).**
+
+*Real-world example:* Picture a housing shortage in college town in August. Every
+apartment is rented, and subletters are asking $2,000/month for a one-bedroom. You don't
+own a lease, but you know the spring graduates move out in May, flooding the market with
+vacancies. You sign a one-year lease now at the inflated $2,000 rate, immediately
+"rent-out" (sublet) it to the desperate student for $2,000 while you search, then in May
+you find a new tenant for $1,200, netting $800/month difference — all while the lease
+obligation you owe is now trivially cheap to fulfill. You profited from the *decline in
+the cost of borrowing* the asset. **That is a short position.**
 
 Nikola uses **margin** (leveraged borrowing) with **both** directions available.
 In live mode, the default bot operates primarily **long** on BTNL (Buy-The-Next-Level)
@@ -485,6 +532,40 @@ candle, the sacred geometry of a universe created in That image. — ### Dedicat
 > Their curiosity, their love of beauty, their insatiable wonder at the
 > patterns of the world — these are the true inheritance that Nikola carries
 > forward. Every line of code is a small act of remembrance.
+
+---
+
+## ❓ FAQ
+
+### Q: Do I have to run Paper Mode first?
+
+**Yes.** Keep Nikola in Paper Mode until you can explain in your own words why he
+places TP1 at +1.4% and why his stop loss ratchets to Entry + Fees + 0.2% after
+TP1 fills. Move to live trading only when you understand his risk math.
+
+> *"The market is vast, and ego is expensive."* If you can't explain the 3:1
+> minimum R:R, the SL1 conviction gate, or the three-stage stop ratchet —
+> **you are not ready for real money.**
+
+### Q: What's the difference between TP1 and TP2?
+
+**TP1 (+1.4%, exits 40%)** is the first profit target that banks a large chunk
+of the position. **TP2 (+2.8%, exits another 40%)** doubles the TP1 distance
+("mirrors" it), banking 80% total. Only 20% remains as the "runner" that trails
+for additional gains.
+
+### Q: Why does the stop loss ratchet after TP1 fills?
+
+Once TP1 banked 40%, the remaining 60% is protected by a **new hard stop** at
+Entry + Fees + 0.2% — guaranteeing the position can never return to zero. After
+TP2 (80% banked), that hard stop ratchets **up to the TP1 price**, locking in
++1.4% profit on the final 20% runner. The runner can never lose money.
+
+### Q: Can I trade this on other exchanges?
+
+Nikola uses CCXT for universal exchange connectivity. Kraken Pro is production-
+tested, Coinbase Advanced and Binance are supported. The entire risk engine is
+exchange-agnostic — only the connection layer changes.
 
 ---
 
