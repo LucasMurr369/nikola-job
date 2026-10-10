@@ -10,12 +10,13 @@ ATR) supports a larger move.
 
 States
 ------
-    MONITOR   Entry order sent; SL1 placed (-2.1% partial, TPs retained).
+    MONITOR   Entry order sent; SL1 placed (-2.1% partial, convict-on close).
               Waiting for fill confirmation before arming the TP ladder.
 
     ACTIVE    Entry filled. Base TP1/TP2 + 20% runner are live. SL1 active.
               At +0.1R → BE ratchet primes; after TP1+TP2 both fill → SL snaps to
               breakeven floor (+2.0%); peak ≥ +2.5% → wide trail arms for runner.
+              SL1 partial fires on 1m/5m candle close ≥ 1.5% adverse (conviction gate).
 
     EXPANDED  +3R reached. 50% partial exit booked. Remaining 50% either:
               • MTF strong (≥3/6 TFs agree) → 2×ATR trailing stop (mega-trend)
@@ -32,7 +33,7 @@ from enum import Enum, auto
 from typing import Optional, List, Dict, Any
 
 from .config import (
-    SL1_PCT, SL2_PCT, TRAIL_STOP_PCT, TRAIL_WIDE_PCT, TRAIL_WIDE_ARM_PCT,
+    SL1_PCT, SL1_CONVICTION_PCT, SL2_PCT, TRAIL_STOP_PCT, TRAIL_WIDE_PCT, TRAIL_WIDE_ARM_PCT,
     BREAKEVEN_BUFFER_PCT, TP_RUNG_PCTS, MAJOR_TP_PCTS,
     MTF_TIMEFRAMES, HIGH_LEV_PAIRS,
     BTC_CASCADE_TRIGGER_PCT, CASCADE_SCALEOUT_PCT,
@@ -116,6 +117,8 @@ class DynamicRiskReward:
         partial_exit_r      — +3.0R → 50% partial exit, enter EXPANDED
         expand_mtf_min      — ≥3/6 TFs agreeing → MTF trailing (vs tight trail)
         atr_trail_mult      — 2×ATR trailing distance in EXPANDED state
+        sl1_conviction_pct  — SL1 partial fires when 1m/5m candle closes adverse
+                               by ≥ this fraction (default 1.5% from SL1_CONVICTION_PCT)
     """
 
     def __init__(self):
@@ -128,6 +131,9 @@ class DynamicRiskReward:
         self.atr_trail_mult: float = 2.0
         self.tight_trail_pct: float = TRAIL_WIDE_PCT   # 0.60% tight trail
         self.be_buffer_pct: float = BREAKEVEN_BUFFER_PCT  # +2.0% BE floor
+
+        # SL1 conviction threshold — partial fires on 1m/5m candle close ≥ 1.5% adverse
+        self.sl1_conviction_pct: float = SL1_CONVICTION_PCT
 
         # Peak thresholds (as R-multiples) for runner trail arm
         # TRAIL_WIDE_ARM_PCT = 0.025 (2.5%)  → 2.5/2.1 ≈ 1.19R
@@ -213,6 +219,33 @@ class DynamicRiskReward:
         if not votes:
             return 0
         return sum(1 for v in votes.values() if v == ("LONG" if direction == "LONG" else "SHORT"))
+
+    # ------------------------------------------------------------------
+    # SL1 conviction check
+    # ------------------------------------------------------------------
+    def _sl1_conviction_triggered(self, pos: Position) -> bool:
+        """SL1 partial fires only when a new 1m/5m candle CLOSES adverse >= 1.5%.
+
+        Loads the last completed candle from the 1m and 5m feeds and checks
+        whether its close is adverse to the position by >= SL1_CONVICTION_PCT.
+        Uses the more adverse of the two timeframes. Candle close (not wick)
+        is the conviction signal — no whipsaw scale-out on a price touch.
+        """
+        from .signals import load_candles
+        max_adverse = 0.0
+        for tf in ("1m", "5m"):
+            candles = load_candles(pos.pair, tf)
+            if len(candles) < 2:
+                continue
+            close = float(candles[-1][4])  # most recent close
+            if pos.entry_price <= 0:
+                continue
+            if pos.direction == "LONG":
+                adverse = (pos.entry_price - close) / pos.entry_price
+            else:
+                adverse = (close - pos.entry_price) / pos.entry_price
+            max_adverse = max(max_adverse, adverse)
+        return max_adverse >= SL1_CONVICTION_PCT
 
     # ------------------------------------------------------------------
     # Main evaluation
@@ -331,10 +364,11 @@ class DynamicRiskReward:
                 # Branch: partial exit + trail
                 self._expanded_branch(pos, actions, price, votes, atr, mtf)
 
-            # 6) SL1 hit (-2.1%) → partial close 40% of base, retain TPs, arm SL2
+            # 6) SL1 conviction trigger — partial close 40% of base, retain TPs, arm SL2.
+            # Fires only when a new 1m/5m candle CLOSES adverse by >= 1.5% (candle-close
+            # confirmation, not whipsaw on a price touch through the -2.1% SL1 level).
             if not pos.sl1_hit:
-                sl1_triggered = (pos.direction == "LONG" and price <= pos.sl1_price) or \
-                                (pos.direction == "SHORT" and price >= pos.sl1_price)
+                sl1_triggered = self._sl1_conviction_triggered(pos)
                 if sl1_triggered:
                     pos.sl1_hit = True
                     actions.append(ExecutionAction(

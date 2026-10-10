@@ -57,11 +57,11 @@ MIN_TF_AGREE_DEPLOY = 2  # >=2 of 6 TFs must agree at deploy time
 # ---------------------------------------------------------------------------
 PREFERRED_LEVERAGE = 5
 LEVERAGE_FLOOR = 3
-LEVERAGE_CAP = 10
-LEV_UNLOCK_EQUITY_USD = 150.0       # BTC/ETH uncap to 10x after this equity
+LEVERAGE_CAP = 20
+LEV_UNLOCK_EQUITY_USD = 150.0       # BTC/ETH uncap to 20x after this equity
 HIGH_LEV_PAIRS = ("BTC/USD", "ETH/USD")
 
-MAX_POSITION_MARGIN_USD = 20.0
+MAX_POSITION_MARGIN_USD = 20.0  # retained for backtest compat; live sizing is now dynamic (see MARGIN_TIERS)
 TOTAL_MARGIN_BUDGET_USD = 1_000_000.0
 PAPER_BUDGET_USD = 300.0            # Nikola.md clean-state restart
 MARGIN_RESERVE_PCT = 0.25           # keep 25% of budget un-deployed
@@ -69,9 +69,10 @@ REENTRY_COOLDOWN_SEC = 3600         # 1h per-pair cooldown
 MAX_POSITION_LOSS_USD = 10.0        # paper-mode fixed $ loss per trade
 FEE_TERM_PCT = 0.005                # round-trip fee estimate
 
-# Conviction-tiered leverage + margin (mirrors each other)
-LEV_TIERS = [(0.60, 10), (0.50, 7), (0.40, 5), (0.0, 3)]
-MARGIN_TIERS = [(0.60, 20.0), (0.50, 15.0), (0.40, 10.0), (0.0, 5.0)]
+# Conviction-tiered leverage + dynamic margin (mirrors each other)
+# MARGIN_TIERS now express % of deployable budget (dynamic equity-based sizing)
+LEV_TIERS = [(0.60, 20), (0.50, 10), (0.40, 7), (0.0, 3)]
+MARGIN_TIERS = [(0.60, 0.08), (0.50, 0.05), (0.40, 0.03), (0.0, 0.01)]
 
 # ---------------------------------------------------------------------------
 # settings.yaml overlay -- technical users tune leverage caps here (config/
@@ -109,7 +110,8 @@ _apply_settings_yaml()
 # ---------------------------------------------------------------------------
 # Two-stage stop-loss + TP ladder (user directive — current live config)
 # ---------------------------------------------------------------------------
-SL1_PCT = 0.0210          # -2.10% — partial close (40% of base), TPs retained
+SL1_PCT = 0.0210          # -2.10% — SL1 distance; partial close (40% of base), TPs retained
+SL1_CONVICTION_PCT = 0.015  # SL1 partial fires when 1m/5m candle closes adverse >= 1.5%
 SL2_PCT = 0.0440          # -4.40% — full exit of remaining (2x SL1 distance)
 STOP_LOSS_PCT = SL1_PCT   # backward-compat alias
 TRAIL_STOP_PCT = 0.0030   # stage-1 trail 0.30%
@@ -217,9 +219,9 @@ EQUITY_SCALE = 1.0
 
 
 def leverage_for(confidence: float, pair: str | None = None, equity: float = 0.0) -> int:
-    """Conviction-tiered leverage (3-10x), capped by Kraken's per-pair maximum.
+    """Conviction-tiered leverage (3-20x), capped by Kraken's per-pair maximum.
 
-    BTC/ETH capped at 7x until equity >= LEV_UNLOCK_EQUITY_USD.
+    BTC/ETH capped at 7x until equity >= LEV_UNLOCK_EQUITY_USD (then up to 20x).
     """
     lev = LEVERAGE_FLOOR
     tiers = list(LEV_TIERS)
@@ -240,12 +242,13 @@ def deployable_margin(budget: float = TOTAL_MARGIN_BUDGET_USD) -> float:
     return budget * EQUITY_SCALE * (1.0 - MARGIN_RESERVE_PCT)
 
 
-def margin_tier_for(confidence: float) -> float:
-    """Conviction-weighted margin: <$5/$10/$15/$20, capped at MAX_POSITION_MARGIN_USD."""
-    for floor, amt in MARGIN_TIERS:
+def margin_tier_for(confidence: float, budget: float = TOTAL_MARGIN_BUDGET_USD) -> float:
+    """Conviction-weighted margin: dynamic % of deployable budget (no static $ caps)."""
+    deployable = deployable_margin(budget)
+    for floor, pct in MARGIN_TIERS:
         if confidence >= floor:
-            return min(amt * EQUITY_SCALE, MAX_POSITION_MARGIN_USD * EQUITY_SCALE)
-    return MARGIN_TIERS[-1][1] * EQUITY_SCALE
+            return deployable * pct
+    return deployable * MARGIN_TIERS[-1][1]
 
 
 def tp_rungs_for(pair: str | None = None) -> list[tuple[str, float, float]]:

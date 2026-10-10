@@ -8,7 +8,7 @@ prices.
 
 The ladder geometry (user directive, currently live on Kraken):
 
-    SL1  -2.10%  → partial close 40% of base, TPs retained
+    SL1  -2.10%  → partial close (40% of base) on 1m/5m candle close ≥ 1.5% adverse, TPs retained
     TP1  +1.4%   → 40% of base exits  (2× SL1 distance)
     TP2  +2.8%   → 30% of base exits  (2× TP1 distance — user 2026-10-07)
     30%  runner  → trails 0.30% → 0.60% wide @ +2.5%
@@ -28,7 +28,8 @@ from .config import (
     SL1_PCT, SL2_PCT, TP_RUNG_PCTS, MAJOR_TP_PCTS,
     TRAIL_STOP_PCT, TRAIL_WIDE_PCT, TRAIL_WIDE_ARM_PCT,
     BREAKEVEN_BUFFER_PCT, SL_LIMIT_BAND_PCT, FEE_TERM_PCT,
-    MAX_POSITION_MARGIN_USD, TOTAL_MARGIN_BUDGET_USD, MARGIN_RESERVE_PCT,
+    MAX_POSITION_MARGIN_USD,
+    TOTAL_MARGIN_BUDGET_USD, MARGIN_RESERVE_PCT,
     MARGIN_TIERS, LEV_TIERS, LEVERAGE_CAP, LEVERAGE_FLOOR, PREFERRED_LEVERAGE,
     LEV_UNLOCK_EQUITY_USD, HIGH_LEV_PAIRS, PAIR_LEVERAGE, SYMBOLS,
     min_base_for, round_amount, tp_rungs_for, leverage_for,
@@ -101,16 +102,19 @@ def size_position(pair: str, price: float, atr: float, confidence: float,
     """Conviction-tiered position sizing.
 
     Mirrors deploy_signal's sizing (live_margin_bot.py lines 1482-1497):
-    margin = min(margin_tier_for(conf), MAX_POSITION_MARGIN_USD, budget_left);
-    base = (margin × leverage) / price.
+    margin = min(margin_tier_for(conf), budget_left);
+    base = (margin * leverage) / price.
+
+    Dynamic equity-based sizing replaces the old static $5–$20 MARGIN_TIERS caps:
+    margin_tier_for now returns a percentage of the deployable budget, and there
+    is no MAX_POSITION_MARGIN_USD hard cap.
     """
     from .config import EQUITY_SCALE
-
     pair_leverage = leverage_for(confidence, pair, equity=equity)
+    budget_left = deployable_margin(budget) * (1.0 - MARGIN_RESERVE_PCT)
     margin_allowed = min(
-        margin_tier_for(confidence),
-        MAX_POSITION_MARGIN_USD,
-        deployable_margin(budget) * (1.0 - MARGIN_RESERVE_PCT),
+        margin_tier_for(confidence, budget),
+        budget_left,
     )
     margin_cost = margin_allowed
     base_amount = (margin_cost * pair_leverage) / price if price > 0 else 0.0
