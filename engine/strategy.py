@@ -14,8 +14,9 @@ States
               Waiting for fill confirmation before arming the TP ladder.
 
     ACTIVE    Entry filled. Base TP1/TP2 + 20% runner are live. SL1 active.
-              At +0.1R → BE ratchet primes; after TP1+TP2 both fill → SL snaps to
-              breakeven floor (+2.0%); peak ≥ +2.5% → wide trail arms for runner.
+              At +0.1R → BE ratchet primes; upon TP1 fill → SL1 cancelled,
+              hard SL2 ratchets to Entry+Fees+0.2%; upon TP2 fill → SL2 ratchets
+              to TP1 level, SL1 trails runner at 0.60% wide.
               SL1 partial fires on 1m/5m candle close ≥ 1.5% adverse (conviction gate).
 
     EXPANDED  +3R reached. 50% partial exit booked. Remaining 50% either:
@@ -37,6 +38,7 @@ from .config import (
     BREAKEVEN_BUFFER_PCT, TP_RUNG_PCTS, MAJOR_TP_PCTS,
     MTF_TIMEFRAMES, HIGH_LEV_PAIRS,
     BTC_CASCADE_TRIGGER_PCT, CASCADE_SCALEOUT_PCT,
+    FEE_TERM_PCT, RATCHET_PROFIT_BUFFER_PCT, RATCHET_SL1_BUFFER_PCT,
 )
 
 
@@ -98,6 +100,9 @@ class Position:
     cascade_scaled_out: bool = False   # BTC cascade scale-out applied
     sl1_hit: bool = False   # SL1 partial-close fired (prevents re-trigger)
     trade_id: str = ""                 # links to paper_trades.json ledger
+    # Post-fill stop ratchet (active after TP1/TP2 fill)
+    sl1_cancelled: bool = False      # initial -2.1% SL1 cancelled on exchange after TP1
+    sl2_ratcheted: bool = False      # SL2 hard stop ratcheted up to TP1 level after TP2
 
 
 @dataclass
@@ -212,6 +217,47 @@ class DynamicRiskReward:
         return pos.entry_price + pos.entry_price * SL2_PCT
 
     # ------------------------------------------------------------------
+    # Post-fill stop ratchet helpers
+    # ------------------------------------------------------------------
+    def _ratchet_sl2_price(self, pos: Position) -> float:
+        """Post-TP1 hard stop: Entry + fees + 0.2% profit buffer.
+
+        This replaces the original -4.4% SL2 with a positive hard stop just
+        above entry, guaranteeing no trade washes out to zero. The 0.2%
+        buffer (plus fee term) ensures the stop sits in profit territory
+        — 80% of the position is already banked via TP1/TP2.
+        """
+        buffer = pos.entry_price * (FEE_TERM_PCT + RATCHET_PROFIT_BUFFER_PCT)
+        if pos.direction == "LONG":
+            return pos.entry_price + buffer
+        return pos.entry_price - buffer
+
+    def _ratchet_sl1_below_tp1(self, pos: Position) -> float:
+        """Post-TP1 SL1: dynamic candle stop sits ~0.5% below TP1 level.
+
+        After TP1 fills, the old -2.1% SL1 is cancelled on the exchange.
+        SL1 is repositioned below TP1 as a trailing candle-close stop that
+        protects the remaining position (TP2 + 20% runner) while letting
+        the trade continue toward TP2.
+        """
+        if pos.tp is None:
+            return pos.sl1_price
+        if pos.direction == "LONG":
+            return pos.tp.tp1_price - pos.tp.tp1_price * RATCHET_SL1_BUFFER_PCT
+        return pos.tp.tp1_price + pos.tp.tp1_price * RATCHET_SL1_BUFFER_PCT
+
+    def _ratchet_sl2_to_tp1(self, pos: Position) -> float:
+        """Post-TP2 hard stop: ratchet SL2 up to TP1 price level.
+
+        After TP2 fills (80% banked), the exchange hard stop moves to TP1
+        price, locking in +1.4% profit on the remaining 20% runner. This
+        guarantees no trade washout — the runner can never lose money.
+        """
+        if pos.tp is None:
+            return pos.sl2_price
+        return pos.tp.tp1_price
+
+    # ------------------------------------------------------------------
     # MTF strength
     # ------------------------------------------------------------------
     def _mtf_strength(self, votes: Dict[str, str], direction: str) -> int:
@@ -318,6 +364,27 @@ class DynamicRiskReward:
                     actions.append(ExecutionAction(
                         "TP1_FILLED", pos.pair, price=pos.tp.tp1_price,
                         payload={"r": round(tp1_r, 2), "partial": pos.tp.tp1_pct}))
+                    # ── Post-fill stop ratchet (TP1) ──
+                    # 1) Cancel the initial -2.1% SL1 on the exchange
+                    pos.sl1_cancelled = True
+                    actions.append(ExecutionAction(
+                        "CANCEL_SL1", pos.pair, price=price,
+                        payload={"reason": "tp1_filled", "old_sl1": pos.sl1_price}))
+                    # 2) Issue new exchange hard stop SL2 at Entry + Fees + 0.2% buffer
+                    pos.sl2_price = self._ratchet_sl2_price(pos)
+                    pos.be_floor = pos.sl2_price
+                    actions.append(ExecutionAction(
+                        "PLACE_SL2_RATCHET", pos.pair, price=pos.sl2_price,
+                        payload={"sl2_new": pos.sl2_price,
+                                 "reason": "entry+fees+0.2pct_buffer",
+                                 "buffer_pct": FEE_TERM_PCT + RATCHET_PROFIT_BUFFER_PCT}))
+                    # 3) Move SL1 to just below TP1 level (candle-close trailing stop)
+                    pos.sl1_price = self._ratchet_sl1_below_tp1(pos)
+                    actions.append(ExecutionAction(
+                        "MOVE_SL1", pos.pair, price=pos.sl1_price,
+                        payload={"sl1_new": pos.sl1_price,
+                                 "below_tp1": pos.tp.tp1_price,
+                                 "sl1_buffer_pct": RATCHET_SL1_BUFFER_PCT}))
 
             # 2) TP2 fill → BE ratchet after BOTH rungs
             if not pos.tp.tp2_filled:
@@ -329,13 +396,24 @@ class DynamicRiskReward:
                         "TP2_FILLED", pos.pair, price=pos.tp.tp2_price,
                         payload={"r": round(tp2_r, 2), "partial": pos.tp.tp2_pct}))
                     # 80% exited (40+40), BE ratchet arms on the 20% runner
-                    new_be = pos.entry_price + (pos.entry_price * self.be_buffer_pct
-                                                if pos.direction == "LONG"
-                                                else -(pos.entry_price * self.be_buffer_pct))
-                    pos.be_floor = new_be
+                    # ── Post-fill stop ratchet (TP2) ──
+                    # Ratchet SL2 hard stop UP to TP1 price level (locks +1.4% on runner)
+                    ratcheted_sl2 = self._ratchet_sl2_to_tp1(pos)
+                    pos.sl2_price = ratcheted_sl2
+                    pos.sl2_ratcheted = True
+                    # BE floor moves to TP1 level (runner can never lose money)
+                    pos.be_floor = ratcheted_sl2
                     actions.append(ExecutionAction(
-                        "BE_RATCHET_ARM", pos.pair, price=pos.be_floor,
-                        payload={"sl_to": pos.be_floor, "runner_remainder": pos.tp.runner_pct}))
+                        "RATCHET_TP2_SL2_TO_TP1", pos.pair, price=ratcheted_sl2,
+                        payload={"sl2_prev": pos.be_floor, "sl2_new": ratcheted_sl2,
+                                 "ratcheted_to": "TP1_price", "runner_remainder": pos.tp.runner_pct}))
+                    # Attach SL1 to trail the 20% runner — arm immediately
+                    if not pos.tp.runner_trailing:
+                        pos.tp.runner_trailing = True
+                        actions.append(ExecutionAction(
+                            "ARM_RUNNER_TRAIL", pos.pair, price=pos.tp.tp1_price,
+                            payload={"trail_pct": TRAIL_WIDE_PCT,
+                                     "reason": "tp2_filled_ratchet_runner_trail"}))
 
             # 3) Runner trail arm at peak ≥ TRAIL_WIDE_ARM_PCT (≈1.19R)
             if pos.tp.tp2_filled and not pos.tp.runner_trailing:
@@ -364,10 +442,11 @@ class DynamicRiskReward:
                 # Branch: partial exit + trail
                 self._expanded_branch(pos, actions, price, votes, atr, mtf)
 
-            # 6) SL1 conviction trigger — partial close 40% of base, retain TPs, arm SL2.
+            # 6) SL1 conviction check — partial close 40% of base, retain TPs, arm SL2.
             # Fires only when a new 1m/5m candle CLOSES adverse by >= 1.5% (candle-close
             # confirmation, not whipsaw on a price touch through the -2.1% SL1 level).
-            if not pos.sl1_hit:
+            # Skipped after TP1 ratchet — SL1 has been cancelled & repositioned below TP1.
+            if not pos.sl1_hit and not pos.sl1_cancelled:
                 sl1_triggered = self._sl1_conviction_triggered(pos)
                 if sl1_triggered:
                     pos.sl1_hit = True

@@ -66,7 +66,7 @@ between probability and patience. Nikola enforces this conversation in code:
 | **SL1 Partial at -2.1%** | If a 1m/5m candle **closes** adverse by ≥ 1.5%, close 40% — TPs retained |
 | **SL2 Full Exit at -4.4%** | If the remaining position hits -4.4%, the rest exits fully |
 | **80% Banked Before Runner** | TP1 (40%) + TP2 (40%) = 80% banked before the 20% runner trails |
-| **Break-Even Ratchet** | After TP1 + TP2 fill, SL2 snaps to entry + 2.0% — runner is free |
+| **Post-Fill Stop Ratchet** | TP1 fill cancels SL1 (-2.1%), sets hard SL2 at Entry+Fees+0.2%; TP2 fill ratchets SL2 to TP1 level; SL1 trails the 20% runner |
 
 ### Portfolio Balance & Asset Protection
 
@@ -264,9 +264,9 @@ paper. The only switch is `--live`.
 
 - **State 1 — MONITOR**: Entry sent, SL1 armed (candle-close conviction at 1.5%).
   TP1 (+1.4%/40%) + TP2 (+2.8%/40%) + 20% runner pending. Waiting for fill.
-- **State 2 — ACTIVE**: Position live. At +0.1R the BE ratchet primes; once TP1
-  *and* TP2 both fill, SL snaps to breakeven (+2.0% floor). Beyond +2.5% the 20%
-  runner trails 0.30% → 0.60% wide.
+- **State 2 — ACTIVE**: Position live. At +0.1R the BE ratchet primes; upon TP1
+  fill, SL1 is cancelled and hard SL2 ratchets to Entry+Fees+0.2%; upon TP2
+  fill, SL2 ratchets to TP1 level and SL1 trails the runner at 0.60% wide.
 - **State 3 — EXPANDED** (the innovation): When profit hits **3× risk** (+3R ≈ 6.3%
   for alts / 4.2% for majors), the state machine branches on MTF confluence:
   - **MTF strong** (≥3/6 timeframes confirm trend) → 50% partial exit at +3R,
@@ -322,6 +322,9 @@ changes.
 ```
 Entry → TP1 (+1.4%, 40% closed) → TP2 (+2.8%, 40% closed) → 20% runner trails
      ↘ SL1 (-2.1%, 40% closed on candle-close ≥ 1.5% adverse) → SL2 (-4.4%, full exit)
+
+POST-TP1 RATCHET: Cancel SL1(-2.1%) → Hard SL2 at Entry+Fees+0.2% → SL1 below TP1 (trail)
+POST-TP2 RATCHET: SL2 → TP1 level (lock +1.4%) → SL1 trails 20% runner at 0.60% wide
 ```
 
 - **TP1** at +1.4% exits 40% of base position
@@ -342,11 +345,34 @@ while keeping the TP ladder active for a potential reversal bounce.
 SL2 is the **hard floor** at -4.4% — if the conviction signal was wrong, the
 remaining 60% exits cleanly before losses compound.
 
-### Break-Even Ratchet (After TP1 + TP2)
+### Post-Fill Stop Ratchet (Ratchet Logic)
 
-Once 80% is banked, SL2 snaps to **entry + 2.0%** (BE floor). The 20% runner is
-now risk-free. Beyond +2.5% peak, the wide 0.60% trail arms — letting strong
-trends run to 5:1, 8:1+ while profit is already secured.
+To eliminate trade washouts, Nikola implements a **three-stage stop ratchet**
+that escalates the hard stop floor as profit is banked:
+
+1. **Upon TP1 Fill** (+1.4%): The initial -2.1% SL1 is **cancelled on the exchange**.
+   A new **hard SL2** is placed at **Entry Price + Exchange Fees + 0.2% Profit Buffer**
+   — this sits just above break-even, guaranteeing zero wipeout. SL1 (the dynamic
+   candle stop) is repositioned just below the TP1 price level, acting as a trailing
+   candle-close protection for the remaining position.
+
+2. **Upon TP2 Fill** (+2.8%, 80% banked): SL2 is **ratcheted up to the TP1 price level**,
+   locking in +1.4% profit on the remaining 20% runner. This hard stop can only move
+   up, never down — the runner is now risk-free.
+
+3. **Runner Trail**: SL1 attaches to the 20% runner as an immediate 0.60% wide
+   trailing stop, capturing additional downside protection beyond the hard SL2 floor.
+
+> **Result: once TP1 fills, no trade can wash out to zero. Once TP2 fills,
+> the runner can never lose money.**
+
+### Stop Floor Ratchet (After TP1 + TP2)
+
+Once TP1 fills, the hard SL2 moves to **Entry + Fees + 0.2%** — the position
+cannot return to zero. Once TP2 fills (80% banked), SL2 is **ratcheted up to the
+TP1 price level**, locking in +1.4% on the remaining 20% runner. The runner trail
+arms immediately at 0.60% width — letting strong trends run to 5:1, 8:1+ while
+profit is already secured.
 
 ### Dynamic Leverage & Sizing
 
@@ -454,7 +480,7 @@ candle, the sacred geometry of a universe created in That image. — ### Dedicat
 
 > **Authored by MSLM.**
 >
-> **Dedicated in loving memory of Mason and Silas.**
+> **Inspired by and dedicated to Mason and Silas.**
 >
 > Their curiosity, their love of beauty, their insatiable wonder at the
 > patterns of the world — these are the true inheritance that Nikola carries
