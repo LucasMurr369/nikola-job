@@ -329,8 +329,34 @@ class Daemon:
                 pos.base_amount *= 0.5
                 if self.verbose:
                     print(f"    -> partial exit 50% on {pair} @ {a.price:.5f}")
+            elif a.action == "BE_PRIME":
+                # Micro-breakeven tracking armed at +0.1R (before TP1 fills)
+                if pos.tp:
+                    pos.tp.be_ratchet_primed = True
+                if self.verbose:
+                    print(f"    -> BE_PRIME armed on {pair} "
+                          f"@ R={a.payload.get('r', 0):.2f}")
             elif a.action == "BE_RATCHET_ARM":
                 pos.be_floor = a.price
+                # Ratchet live SL2 up to BE floor — protects accrued profit
+                if (not self.paper and getattr(pos, 'sl2_set', False)
+                        and pos.be_floor > pos.sl2_price + 1e-9):
+                    self._ratchet_live_sl2(pair, pos, pos.be_floor,
+                                           "BE_RATCHET_ARM")
+            elif a.action == "ARM_RUNNER_TRAIL":
+                # Wide trailing (0.60%) armed on the remaining runner
+                # after TP2 fill + peak ≥ 1.19R
+                if pos.tp:
+                    pos.tp.runner_trailing = True
+                pos.trail_pct = a.payload.get("trail_pct", 0.006)
+                pos.trailing_sl = a.price  # seed at peak; updated each light cycle
+                if (not self.paper and getattr(pos, 'sl2_set', False)
+                        and pos.be_floor > pos.sl2_price + 1e-9):
+                    self._ratchet_live_sl2(pair, pos, pos.be_floor,
+                                           "ARM_RUNNER_TRAIL")
+                if self.verbose:
+                    print(f"    -> Runner trail armed on {pair} @ {a.price:.5f} "
+                          f"(trail={pos.trail_pct*100:.2f}%)")
             elif a.action == "SL1_HIT":
                 # Partial close at SL1 (-2.1%): close 40% of base,
                 # retain TP ladder, arm SL2 as the new floor.
@@ -411,6 +437,22 @@ class Daemon:
                 self._close_position(pair, price, reason="TRAIL_EXIT")
             elif pos.direction == "SHORT" and price >= pos.trailing_sl:
                 self._close_position(pair, price, reason="TRAIL_EXIT")
+        # ACTIVE-state runner trailing (armed via ARM_RUNNER_TRAIL)
+        # Trails 0.60% behind peak, floored at BE (+2.0%)
+        if (pos.tp and pos.tp.runner_trailing
+                and pos.state == strat.PositionState.ACTIVE
+                and getattr(pos, 'be_floor', 0) > 0):
+            trail_pct = getattr(pos, 'trail_pct', 0.006)
+            if pos.direction == "LONG":
+                pos.trailing_sl = max(pos.peak_price * (1 - trail_pct),
+                                      pos.be_floor)
+                if pos.trailing_sl > 0 and price <= pos.trailing_sl:
+                    self._close_position(pair, price, reason="RUNNER_TRAIL_EXIT")
+            else:
+                pos.trailing_sl = min(pos.peak_price * (1 + trail_pct),
+                                      pos.be_floor)
+                if pos.trailing_sl > 0 and price >= pos.trailing_sl:
+                    self._close_position(pair, price, reason="RUNNER_TRAIL_EXIT")
 
     def _close_position(self, pair: str, exit_price: float,
                         reason: str) -> None:
@@ -567,6 +609,38 @@ class Daemon:
         if self.verbose:
             print(f"    -> LIVE_EXIT {pair} {reason} {amount:.4f} @ {price:.5f}")
 
+    def _ratchet_live_sl2(self, pair: str, pos: strat.Position,
+                          new_price: float, reason: str) -> None:
+        """Cancel existing SL2 on exchange and replace at new_price (ratchet up).
+
+        Falls back to original SL2 price if the ratchet placement fails —
+        capital is never left unprotected.
+        """
+        mx = self.ex.exchange
+        btnl = f"{pair}:BTNL"
+        close_side = "buy" if pos.direction == "LONG" else "sell"
+        # Cancel old SL2
+        old_oid = getattr(pos, 'sl2_order_id', '')
+        if old_oid:
+            try:
+                mx.cancel_order(old_oid, btnl)
+            except Exception as e:
+                log.warning(f"  SL2 cancel failed for {pair}: {e}")
+        # Place new SL2 at ratcheted price
+        sl_order = place_sl(mx, btnl, close_side, pos.base_amount,
+                            new_price, pos.leverage)
+        if sl_order:
+            pos.sl2_order_id = sl_order.get("id", "")
+            pos.sl2_price = new_price
+            log.info(f"  SL2 ratcheted {pair} → {new_price:.5f} ({reason})")
+        else:
+            log.warning(f"  SL2 ratchet FAILED for {pair} ({reason}) "
+                        "— re-placing at last known SL2 price")
+            fallback = place_sl(mx, btnl, close_side, pos.base_amount,
+                                pos.sl2_price, pos.leverage)
+            if fallback:
+                pos.sl2_order_id = fallback.get("id", "")
+
     def _verify_protection_orders(self, pair: str, pos: strat.Position) -> None:
         """Check SL2/TP1/TP2 are still on the exchange; re-place if missing.
         Guards against Kraken cancelling reduce-only orders post-placement."""
@@ -651,6 +725,13 @@ class Daemon:
                                          pos.tp.tp2_price, pos.leverage)
                     if tp2_order:
                         pos.tp2_order_id = tp2_order.get("id", "")
+
+            # --- BE floor sync: ratchet exchange SL2 up to be_floor ---
+            if (getattr(pos, 'be_floor', 0) > pos.sl2_price
+                    and not getattr(pos, 'sl1_hit', False)):
+                log.info(f"  BE_RATCHET_SYNC: {pair} SL2 {pos.sl2_price:.5f} "
+                         f"→ {pos.be_floor:.5f}")
+                self._ratchet_live_sl2(pair, pos, pos.be_floor, "BE_VERIFY_SYNC")
         except Exception as e:
             log.error(f"Order verification failed for {pair}: {e}")
 

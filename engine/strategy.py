@@ -60,6 +60,7 @@ class TPRungs:
     tp1_filled: bool = False
     tp2_filled: bool = False
     runner_trailing: bool = False
+    be_ratchet_primed: bool = False  # BE_PRIME emitted (micro-Breakeven tracking armed)
 
 
 @dataclass
@@ -312,7 +313,8 @@ class DynamicRiskReward:
                         payload={"trail_pct": TRAIL_WIDE_PCT}))
 
             # 4) BE ratchet prime at +0.1R (before TP1 even fills)
-            if not pos.tp.tp1_filled and r >= self.be_ratchet_r:
+            if not pos.tp.tp1_filled and not pos.tp.be_ratchet_primed and r >= self.be_ratchet_r:
+                pos.tp.be_ratchet_primed = True
                 actions.append(ExecutionAction(
                     "BE_PRIME", pos.pair, price=pos.entry_price,
                     payload={"reason": "early_protection", "r": round(r, 2)}))
