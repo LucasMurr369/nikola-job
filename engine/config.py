@@ -87,6 +87,8 @@ MARGIN_RESERVE_PCT = 0.25           # keep 25% of budget un-deployed
 REENTRY_COOLDOWN_SEC = 3600         # 1h per-pair cooldown
 MAX_POSITION_LOSS_USD = 10.0        # paper-mode fixed $ loss per trade
 FEE_TERM_PCT = 0.005                # round-trip fee estimate
+RATCHET_PROFIT_BUFFER_PCT = 0.002   # 0.2% profit buffer above entry for post-TP1 hard stop
+RATCHET_SL1_BUFFER_PCT = 0.005      # SL1 sits 0.5% below TP1 level (candle-close trailing)
 
 # Conviction-tiered leverage + dynamic margin (mirrors each other)
 # MARGIN_TIERS now express % of deployable budget (dynamic equity-based sizing)
