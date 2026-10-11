@@ -588,7 +588,8 @@ class Daemon:
 
     # -- live order placement (GO-LIVE ACTIVE) --
     def _deploy_live_orders(self, pair: str, pos: strat.Position,
-                            size: risk_mod.SizeResult, entry_price: float) -> bool:
+                            size: risk_mod.SizeResult, entry_price: float,
+                            order_type: str = "limit") -> bool:
         """Place real Kraken BTNL entry + SL + TP orders.
 
         Only called when ``--live``. Entry is a limit order;
@@ -605,7 +606,7 @@ class Daemon:
         side = "buy" if pos.direction == "LONG" else "sell"
         # Entry
         entry_order = place_entry(mx, btnl, side, size.base_amount,
-                                  entry_price, size.leverage)
+                                  entry_price, size.leverage, order_type)
         if not entry_order:
             log.error(f"LIVE entry failed for {pair} — position NOT opened")
             self.active.pop(pair, None)
@@ -1093,11 +1094,12 @@ class Daemon:
         """Return the deployable budget for position sizing.
 
         Paper mode:  self.cash (paper budget).
-        Live mode:   free margin from the Kraken exchange (minus 10% reserve).
+        Live mode:   all free margin from the Kraken exchange (10% hold removed;
+        MARGIN_RESERVE_PCT 5% provides the margin-call buffer).
         """
         if self.paper:
-            return self.cash * 0.9
-        return max(self.ex.free_margin() * 0.9, 0.0)
+            return self.cash
+        return max(self.ex.free_margin(), 0.0)
 
     # -- full scan --
     def full_scan(self) -> None:
@@ -1145,7 +1147,7 @@ class Daemon:
             return
         self._deploy(candidates[0])
 
-    def _deploy(self, signal: dict) -> None:
+    def _deploy(self, signal: dict, order_type: str = "limit") -> None:
         pair = signal["pair"]
         direction = "LONG" if signal["composite_signal"] == "BUY" else "SHORT"
         price = signal["current_price"]        # prior 1h close (signals.py:434)
@@ -1161,8 +1163,17 @@ class Daemon:
         if not spot:
             spot = self.ex.fetch_ticker(pair).get("last", 0.0) or 0.0
         _slp = cfg.ENTRY_SLIPPAGE_PCT
-        if direction == "LONG" and price > 0 and 0 < spot >= price * (1.0 - _slp):
-            price = spot * (1.0 + _slp)       # near/above 1h-close -> fill at spot+buffer
+        # Micro-cap tick fix: sub-dollar tickers (PEPE/SHIB/PENGU/TRX @ 0.0000x)
+        # lose the 0.3% buffer below tick precision -> a buy-LIMIT rounds to the
+        # stale 1h close and enters underwater (the 0.00000 artifact / churn).
+        # Market-fill them at the live 1m spot instead: guaranteed fill, deep
+        # mcap liquidity absorbs it, SL2/TP1/TP2 still gate the trade. Majors
+        # ($1+) keep the buffered LIMIT.
+        if price > 0 and price < 1.0:
+            order_type = "market"
+            price = spot or price
+        elif direction == "LONG" and price > 0 and 0 < spot >= price * (1.0 - _slp):
+            price = spot * (1.0 + _slp)       # buffered limit lifts above spot -> fills in chop/uptrend
         elif direction == "SHORT" and price > 0 and 0 < spot <= price * (1.0 + _slp):
             price = spot * (1.0 - _slp)
         if price <= 0:
@@ -1215,7 +1226,7 @@ class Daemon:
         print(f'  >> God Code: "{q}"')
         # --- LIVE MODE: place real Kraken BTNL orders ---
         if not self.paper:
-            self._deploy_live_orders(pair, pos, size, price)
+            self._deploy_live_orders(pair, pos, size, price, order_type)
 
     # -- main loop --
     def run(self) -> None:

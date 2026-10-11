@@ -83,7 +83,8 @@ HIGH_LEV_PAIRS = ("BTC/USD", "ETH/USD")
 MAX_POSITION_MARGIN_USD = 20.0  # retained for backtest compat; live sizing is now dynamic (see MARGIN_TIERS)
 TOTAL_MARGIN_BUDGET_USD = 1_000_000.0
 PAPER_BUDGET_USD = 300.0            # Nikola.md clean-state restart
-MARGIN_RESERVE_PCT = 0.25           # keep 25% of budget un-deployed
+MARGIN_RESERVE_PCT = 0.05           # 5% buffer (capital unlocked — _deployable_budget
+                                    # no longer holds 10% idle; BTC SL2/cascade guard the book)
 REENTRY_COOLDOWN_SEC = 3600         # 1h per-pair cooldown
 MAX_POSITION_LOSS_USD = 10.0        # paper-mode fixed $ loss per trade
 FEE_TERM_PCT = 0.005                # round-trip fee estimate

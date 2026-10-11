@@ -52,18 +52,28 @@ DRY_RUN = False  # 🔴 GO-LIVE — real BTNL orders now active
 
 
 def place_entry(exchange, symbol: str, side: str, amount: float,
-                price: float, leverage: int) -> Optional[Dict]:
-    """Place a limit entry order (BTNL margin)."""
+                price: float, leverage: int, order_type: str = "limit") -> Optional[Dict]:
+    """Place an entry order (BTNL margin). Default LIMIT; MARKET for micro-caps
+    (sub-dollar tickers) where a 0.3% buffer rounds below tick precision and the
+    limit never fills / enters underwater. Market fills at the live 1m spot —
+    PEPE/SHIB/PENGU/TRX are deep/liquid memes; SL2/TP1/TP2 still gate the trade."""
     if DRY_RUN:
-        log.info(f"  [DRY_RUN] WOULD enter {side} {amount} {symbol} @ {price} (lev {leverage})")
+        log.info(f"  [DRY_RUN] WOULD enter {side} {amount} {symbol} @ {price} (lev {leverage}, {order_type})")
         return {"id": f"dry_{int(time.time())}", "symbol": symbol, "side": side,
                 "amount": amount, "price": price, "leverage": leverage, "status": "dry_run"}
     try:
-        order = exchange.create_order(
-            symbol=symbol, type="limit", side=side, amount=amount,
-            price=price, params={"leverage": leverage},
-        )
-        log.info(f"  ENTRY: {side} {amount} {symbol} @ {price} (lev {leverage}) — {order.get('id')}")
+        if order_type == "market":
+            order = exchange.create_order(
+                symbol=symbol, type="market", side=side, amount=amount,
+                price=None, params={"leverage": leverage},
+            )
+            log.info(f"  ENTRY(market): {side} {amount} {symbol} (lev {leverage}) — {order.get('id')}")
+        else:
+            order = exchange.create_order(
+                symbol=symbol, type="limit", side=side, amount=amount,
+                price=price, params={"leverage": leverage},
+            )
+            log.info(f"  ENTRY: {side} {amount} {symbol} @ {price} (lev {leverage}) — {order.get('id')}")
         return order
     except Exception as e:
         log.error(f"  ENTRY FAILED: {e}")
