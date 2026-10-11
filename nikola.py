@@ -264,6 +264,9 @@ class Daemon:
     # -- light cycle: step the state machine --
     def light_cycle(self) -> None:
         """Advance prices + step state machine for open positions."""
+        # Position sync: remove ghost positions (closed on exchange but still in memory)
+        if not self.paper:
+            self._sync_position_state()
         for pair in list(self.active.keys()):
             price = advance_mock_price(pair) if self.paper else \
                 self.ex.fetch_ticker(pair).get("last", 0)
@@ -282,6 +285,55 @@ class Daemon:
             # Verify SL2/TP orders survived on the exchange (Kraken cancelation guard)
             if not self.paper:
                 self._verify_protection_orders(pair, pos)
+
+    def _sync_position_state(self) -> None:
+        """Detect positions closed on the exchange and purge from self.active."""
+        from engine.config import normalize_btln_symbol
+        try:
+            ex_positions = self.ex.exchange.fetch_positions()
+        except Exception:
+            return
+        live_pairs: set[str] = set()
+        for p in ex_positions:
+            if not p or not p.get("info"):
+                continue
+            sym = p.get("symbol", "")
+            pair = normalize_btln_symbol(sym)
+            if pair.endswith(":BTNL"):
+                pair = pair[:-5]
+            contracts = float(p.get("contracts", 0) or 0)
+            margin = float(p.get("initialMargin", 0) or 0)
+            if contracts > 0 and margin > 0.01:
+                live_pairs.add(pair)
+        for pair in list(self.active.keys()):
+            pos = self.active.get(pair)
+            if pos is None:
+                continue
+            if pair in live_pairs:
+                continue
+            # Position is gone from exchange — remove from active + cancel orphans
+            if getattr(pos, "filled", True):
+                log.info(f"Position {pair} closed on exchange — removing from active")
+            btnl = f"{pair}:BTNL"
+            for oid_attr in ("sl2_order_id", "tp1_order_id", "tp2_order_id",
+                             "entry_order_id"):
+                oid = getattr(pos, oid_attr, "")
+                if oid:
+                    try:
+                        self.ex.exchange.cancel_order(oid, btnl)
+                    except Exception:
+                        pass
+            # Also cancel any other orphaned orders for this pair
+            try:
+                orphans = self.ex.exchange.fetch_open_orders(btnl)
+                for o in orphans:
+                    try:
+                        self.ex.exchange.cancel_order(o["id"], btnl)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            self.active.pop(pair, None)
 
     def _exec_actions(self, pair: str, pos: strat.Position,
                       actions: list, price: float, votes, atr) -> None:
@@ -582,6 +634,13 @@ class Daemon:
             return False
         pos.sl2_set = True  # mark SL2 as confirmed on exchange
         pos.sl2_order_id = sl_order.get("id", "") if sl_order else ""
+        # TP1 / TP2 (reduce-only limits) — only place when entry is confirmed
+        if not entry_filled:
+            log.warning(
+                f"TP1/TP2 deferred for {pair} — entry not filled; "
+                f"light_cycle will place on fill detection"
+            )
+            return
         # TP1 / TP2 (reduce-only limits) — non-fatal if they fail, with retry
         tp1_base = size.base_amount * pos.tp.tp1_pct
         tp2_base = size.base_amount * pos.tp.tp2_pct
@@ -668,7 +727,7 @@ class Daemon:
         btnl = f"{pair}:BTNL"
         mx = self.ex.exchange
         side = "buy" if pos.direction == "LONG" else "sell"
-        from engine.exchange import place_sl, place_tp
+        from engine.exchange import place_sl, place_tp, _jump_nonce
 
         def _order_open(oid):
             """Verify an order is still 'open' on the exchange by ID.
@@ -682,12 +741,8 @@ class Daemon:
                 except Exception as e:
                     err = str(e).lower()
                     if 'nonce' in err:
-                        # Jump nonce past Kraken's seen value (same mechanism as price feed)
-                        try:
-                            import engine.exchange as _ex_mod
-                            _ex_mod._nonce_state = int(time.time() * 1000) + 120000
-                        except Exception:
-                            pass
+                        # Jump nonce past Kraken's seen value (thread-safe)
+                        _jump_nonce()
                     time.sleep(0.5)
             return False
 
@@ -702,10 +757,16 @@ class Daemon:
                     pos.sl2_order_id = sl_order.get("id", "")
                     log.info(f"SL2 placed for {pair} — {pos.sl2_order_id}")
                 else:
-                    log.critical(f"SL2 placement FAILED for {pair} — emergency close")
-                    self._close_position(pair, pos.current_price,
-                                         reason="EMERGENCY_NO_SL2")
-                    return
+                    fail_count = getattr(pos, '_sl2_fail_count', 0) + 1
+                    pos._sl2_fail_count = fail_count
+                    if fail_count >= 3:
+                        log.critical(f"SL2 placement FAILED for {pair} 3 cycles — emergency close")
+                        self._close_position(pair, pos.current_price,
+                                             reason="EMERGENCY_NO_SL2")
+                        return
+                    else:
+                        log.warning(f"SL2 placement FAILED for {pair} — "
+                                    f"count {fail_count}/3, will retry next cycle")
                 if pos.tp:
                     tp1_o = place_tp(mx, btnl, side,
                                      pos.base_amount * pos.tp.tp1_pct,
@@ -727,10 +788,24 @@ class Daemon:
                                     pos.sl2_price, pos.leverage)
                 if sl_order:
                     pos.sl2_order_id = sl_order.get("id", "")
+                    pos._sl2_fail_count = 0
                     log.info(f"SL2 re-placed for {pair} — {pos.sl2_order_id}")
                 elif sl2_id and _order_open(sl2_id):
                     # Re-placement failed but original SL2 is still active — transient error
+                    pos._sl2_fail_count = 0
                     log.warning(f"SL2 re-place FAILED for {pair} — original still active, will retry next cycle")
+                elif sl2_id:
+                    # Can't verify SL2 state — retry before emergency close
+                    fail_count = getattr(pos, '_sl2_fail_count', 0) + 1
+                    pos._sl2_fail_count = fail_count
+                    if fail_count >= 3:
+                        log.critical(f"SL2 re-place FAILED for {pair} 3 cycles — emergency close")
+                        self._close_position(pair, pos.current_price,
+                                             reason="EMERGENCY_NO_SL2")
+                        return
+                    else:
+                        log.warning(f"SL2 re-place FAILED for {pair} — "
+                                    f"count {fail_count}/3, will retry next cycle")
                 else:
                     log.critical(f"SL2 re-place FAILED for {pair} — emergency close")
                     self._close_position(pair, pos.current_price,

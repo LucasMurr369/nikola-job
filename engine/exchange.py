@@ -28,6 +28,7 @@ import json
 import logging
 import math
 import os
+import threading
 import time
 from collections import deque, defaultdict
 from datetime import datetime, timezone
@@ -83,19 +84,27 @@ def place_sl(exchange, symbol: str, side: str, amount: float,
         return {"id": f"sl_dry_{int(time.time())}", "symbol": symbol, "side": close_side,
                 "amount": amount, "price": limit_price, "stopPrice": stop_price,
                 "leverage": leverage, "reduceOnly": True, "status": "dry_run"}
-    try:
-        order = exchange.create_order(
-            symbol=symbol, type="limit", side=close_side, amount=amount,
-            price=limit_price,
-            params={"leverage": leverage, "reduceOnly": True,
-                    "stopLossPrice": stop_price, "trigger": "index"},
-        )
-        log.info(f"  SL(stop-loss-limit): {close_side} {amount} {symbol} "
-                 f"trigger={stop_price} limit={limit_price:.5f} — {order.get('id')}")
-        return order
-    except Exception as e:
-        log.error(f"  SL FAILED: {e}")
-        return None
+    for attempt in range(3):
+        try:
+            order = exchange.create_order(
+                symbol=symbol, type="limit", side=close_side, amount=amount,
+                price=limit_price,
+                params={"leverage": leverage, "reduceOnly": True,
+                        "stopLossPrice": stop_price, "trigger": "index"},
+            )
+            log.info(f"  SL(stop-loss-limit): {close_side} {amount} {symbol} "
+                     f"trigger={stop_price} limit={limit_price:.5f} — {order.get('id')}")
+            return order
+        except Exception as e:
+            err = str(e).lower()
+            if ('nonce' in err or 'timeout' in err or 'connection' in err) and attempt < 2:
+                _jump_nonce()
+                time.sleep(0.5)
+                continue
+            log.error(f"  SL FAILED: {e}")
+            return None
+    log.error(f"  SL FAILED: nonce/timeout after 3 retries")
+    return None
 
 
 def place_tp(exchange, symbol: str, side: str, amount: float,
@@ -106,17 +115,25 @@ def place_tp(exchange, symbol: str, side: str, amount: float,
         return {"id": f"tp_dry_{int(time.time())}", "symbol": symbol, "side": close_side,
                 "amount": amount, "price": tp_price, "leverage": leverage,
                 "reduceOnly": True, "status": "dry_run"}
-    try:
-        order = exchange.create_order(
-            symbol=symbol, type="limit", side=close_side, amount=amount,
-            price=tp_price,
-            params={"leverage": leverage, "reduceOnly": True},
-        )
-        log.info(f"  TP: {close_side} {amount} {symbol} @ {tp_price} — {order.get('id')}")
-        return order
-    except Exception as e:
-        log.error(f"  TP FAILED: {e}")
-        return None
+    for attempt in range(3):
+        try:
+            order = exchange.create_order(
+                symbol=symbol, type="limit", side=close_side, amount=amount,
+                price=tp_price,
+                params={"leverage": leverage, "reduceOnly": True},
+            )
+            log.info(f"  TP: {close_side} {amount} {symbol} @ {tp_price} — {order.get('id')}")
+            return order
+        except Exception as e:
+            err = str(e).lower()
+            if ('nonce' in err or 'timeout' in err or 'connection' in err) and attempt < 2:
+                _jump_nonce()
+                time.sleep(0.5)
+                continue
+            log.error(f"  TP FAILED: {e}")
+            return None
+    log.error(f"  TP FAILED: nonce/timeout after 3 retries")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +181,7 @@ def depth_chart_text(book: Dict[str, List], levels: int = 5) -> str:
 # ---------------------------------------------------------------------------
 _NONCE_FILE = os.path.join(os.path.dirname(__file__), 'nonce_state.json')
 _nonce_state = int(time.time() * 1000)  # fallback if file missing
+_nonce_lock = threading.Lock()  # thread-safe nonce to prevent price-feed/light-cycle races
 
 def _load_nonce():
     global _nonce_state
@@ -171,7 +189,7 @@ def _load_nonce():
         with open(_NONCE_FILE, 'r') as f:
             _nonce_state = int(json.load(f).get('nonce', int(time.time() * 1000)))
     except Exception:
-        _nonce_state = int(time.time() * 1000)
+        _nonce_state = int(time.time() * 1000) + 100000  # 100s safety margin
 
 def _persisted_nonce():
     """Monotonically increasing nonce that survives process restarts.
@@ -179,20 +197,32 @@ def _persisted_nonce():
     Kraken requires nonce > last-used. CCXT default (ms time) can collide
     if the bot is restarted within the same millisecond. This persists
     the counter to disk and guarantees strict increment.
+
+    Thread-safe: the price-feed thread and light-cycle thread can call
+    this concurrently without nonce collisions.
     """
     global _nonce_state
-    now = int(time.time() * 1000)
-    if now > _nonce_state:
-        _nonce_state = now
-    else:
-        _nonce_state += 1
+    with _nonce_lock:
+        now = int(time.time() * 1000)
+        if now > _nonce_state:
+            _nonce_state = now
+        else:
+            _nonce_state += 1
+        nonce_val = _nonce_state
+    # File write can happen outside the lock (best-effort persistence)
     try:
         with open(_NONCE_FILE, 'w') as f:
-            json.dump({'nonce': _nonce_state}, f)
+            json.dump({'nonce': nonce_val}, f)
             os.fsync(f.fileno())
     except Exception:
         pass
-    return _nonce_state
+    return nonce_val
+
+def _jump_nonce() -> None:
+    """Jump the persisted nonce past Kraken's seen value (recovery on nonce errors)."""
+    global _nonce_state
+    with _nonce_lock:
+        _nonce_state = int(time.time() * 1000) + 120000
 
 _load_nonce()
 
