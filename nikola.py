@@ -1109,6 +1109,20 @@ class Daemon:
                                  paper_sim=self.paper)
         signals = self.mtf.compute_all_signals()
         ranked = self.mtf.rank_candidates(signals)
+        # BTC-regime guard: don't open NEW alt positions when BTC is dumping
+        # (protect rising equity; the cascade already scales out existing BTC).
+        # Inactive in calm/rising regimes, so it never disrupts normal deploys.
+        _btc_15m = sig.load_candles("BTC/USD", "15m") or []
+        if len(_btc_15m) >= 2 and _btc_15m[-1][4] > 0 and _btc_15m[0][4] > 0:
+            _btc_mom = (_btc_15m[-1][4] / _btc_15m[0][4]) - 1.0
+            if _btc_mom < cfg.BTC_DUMP_GUARD_PCT:
+                log.warning(
+                    f"BTC 15m momentum {_btc_mom*100:.2f}% < "
+                    f"{cfg.BTC_DUMP_GUARD_PCT*100:.2f}% -- holding cash, "
+                    f"skipping alt deploy"
+                )
+                sig.save_signal_weights(self.mtf.signal_weights)
+                return
         # In paper mode, block FOREIGN_PAIRS (owned by live bot);
         # in live mode, trade all pairs — foreign blocking not needed.
         held = set(self.active.keys())
