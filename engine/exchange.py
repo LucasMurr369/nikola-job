@@ -180,36 +180,49 @@ def depth_chart_text(book: Dict[str, List], levels: int = 5) -> str:
 # Persisted nonce — prevents EAPI:Invalid nonce across process restarts
 # ---------------------------------------------------------------------------
 _NONCE_FILE = os.path.join(os.path.dirname(__file__), 'nonce_state.json')
-_nonce_state = int(time.time() * 1000)  # fallback if file missing
+# WHY TWO buffers: a co-tenant process (or this bot after a SIGKILL restart) may
+# already have pushed Kraken's "next nonce" ceiling past wall-clock time.
+# NONCE_AHEAD_MS keeps every normal request comfortably above wall-clock so we
+# never collide with a plain ms-time writer; NONCE_JUMP_MS is the recovery jump
+# used on an InvalidNonce error to leap PAST any ceiling we've fallen behind.
+# The nonce MUST be strictly monotonically increasing, so once we're ahead we
+# only ever +1 from there.
+NONCE_AHEAD_MS = 60_000   # every call stays >= 60s ahead of wall clock
+NONCE_JUMP_MS = 300_000   # on error, jump 300s ahead to recover past the ceiling
+_nonce_state = int(time.time() * 1000) + NONCE_AHEAD_MS
 _nonce_lock = threading.Lock()  # thread-safe nonce to prevent price-feed/light-cycle races
 
 def _load_nonce():
     global _nonce_state
     try:
         with open(_NONCE_FILE, 'r') as f:
-            _nonce_state = int(json.load(f).get('nonce', int(time.time() * 1000)))
+            loaded = int(json.load(f).get('nonce', 0))
     except Exception:
-        _nonce_state = int(time.time() * 1000) + 100000  # 100s safety margin
+        loaded = 0
+    # Never start below wall-clock + buffer: a stale low file would make our
+    # first request land below Kraken's seen nonce and re-invent a collision.
+    _nonce_state = max(loaded, int(time.time() * 1000) + NONCE_AHEAD_MS)
 
 def _persisted_nonce():
     """Monotonically increasing nonce that survives process restarts.
 
-    Kraken requires nonce > last-used. CCXT default (ms time) can collide
-    if the bot is restarted within the same millisecond. This persists
-    the counter to disk and guarantees strict increment.
+    Kraken requires nonce strictly greater than any previously used. The value
+    is kept >= wall-clock + NONCE_AHEAD_MS (so it always beats a co-tenant
+    ms-time writer) and strictly increasing (max with last+1), so it can NEVER
+    reset backward after a _jump_nonce burst. (The old `if now > state:
+    state=now` reset, combined with the `+60000` recovery below, could step
+    backward into a nonce Kraken had already accepted and re-trigger the
+    InvalidNonce cascade.)
 
-    Thread-safe: the price-feed thread and light-cycle thread can call
-    this concurrently without nonce collisions.
+    Thread-safe: the price-feed and light-cycle paths may call this
+    concurrently without nonce collisions.
     """
     global _nonce_state
     with _nonce_lock:
         now = int(time.time() * 1000)
-        if now > _nonce_state:
-            _nonce_state = now
-        else:
-            _nonce_state += 1
+        _nonce_state = max(_nonce_state + 1, now + NONCE_AHEAD_MS)
         nonce_val = _nonce_state
-    # File write can happen outside the lock (best-effort persistence)
+    # File write outside the lock (best-effort persistence for crash recovery)
     try:
         with open(_NONCE_FILE, 'w') as f:
             json.dump({'nonce': nonce_val}, f)
@@ -218,11 +231,25 @@ def _persisted_nonce():
         pass
     return nonce_val
 
-def _jump_nonce() -> None:
-    """Jump the persisted nonce past Kraken's seen value (recovery on nonce errors)."""
+def _jump_nonce() -> int:
+    """Jump the persisted nonce past Kraken's seen value (recovery on nonce errors).
+
+    Uses max() so it can only ever move FORWARD — never backward into a value
+    Kraken has already accepted (the previous `now + 120000` could overwrite a
+    higher in-flight value and re-invent a collision). Persisted to survive a
+    crash. Returns the new nonce ceiling.
+    """
     global _nonce_state
     with _nonce_lock:
-        _nonce_state = int(time.time() * 1000) + 120000
+        _nonce_state = max(_nonce_state + 1, int(time.time() * 1000) + NONCE_JUMP_MS)
+        nonce_val = _nonce_state
+    try:
+        with open(_NONCE_FILE, 'w') as f:
+            json.dump({'nonce': nonce_val}, f)
+            os.fsync(f.fileno())
+    except Exception:
+        pass
+    return nonce_val
 
 _load_nonce()
 
@@ -246,17 +273,13 @@ def make_exchange(api_key: str, api_secret: str):
     })
     exchange.load_markets()
     exchange.nonce = _persisted_nonce  # FIX: prevent EAPI:Invalid nonce across restarts
-    # Startup nonce validation — recover from stale file after SIGKILL restart
-    global _nonce_state
+    # Startup nonce validation — recover from a stale file after a SIGKILL restart.
     try:
         exchange.fetch_balance()
     except Exception as ne:
         if 'nonce' in str(ne).lower():
-            _nonce_state = int(time.time() * 1000) + 60000
-            with open(_NONCE_FILE, 'w') as f:
-                json.dump({'nonce': _nonce_state}, f)
-                os.fsync(f.fileno())
-            print(f"[nonce-fix] InvalidNonce on startup — nonce jumped to {_nonce_state}")
+            new = _jump_nonce()
+            print(f"[nonce-fix] InvalidNonce on startup — nonce jumped to {new}")
             try:
                 exchange.fetch_balance()
             except Exception:

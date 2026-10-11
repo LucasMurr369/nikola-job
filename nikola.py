@@ -1181,16 +1181,14 @@ class Daemon:
                         self._full_scans_since_status = 0
                 except Exception as e:
                     if 'nonce' in str(e).lower():
-                        import engine.exchange as _ex
-                        import os as _osmod
-                        import json as _jsonmod
-                        import time as _timemod
-                        _ex._nonce_state = int(_timemod.time() * 1000) + 60000
-                        with open(_ex._NONCE_FILE, 'w') as _f:
-                            _jsonmod.dump({'nonce': _ex._nonce_state}, _f)
-                            _osmod.fsync(_f.fileno())
+                        # Forward-only recovery: reuse _jump_nonce so we can never
+                        # step backward into a nonce Kraken has already accepted
+                        # (the old inline `now + 60000` could overwrite a higher
+                        # in-flight value and re-invent the collision).
+                        from engine.exchange import _jump_nonce
+                        _new = _jump_nonce()
                         log.info(f"InvalidNonce at tick {self.tick} — nonce jumped to "
-                                 f"{_ex._nonce_state}, retrying next cycle")
+                                 f"{_new}, retrying next cycle")
                     else:
                         log.error(f"Cycle error (tick {self.tick}): {e}", exc_info=True)
                     # In live mode, verify no half-open positions lack SL protection
