@@ -213,6 +213,7 @@ LIGHT_LOOP_INTERVAL = 15     # seconds — light check (stop/TP monitoring)
 FULL_SCAN_INTERVAL = 150     # seconds — full scan (MTF refresh + signal scan)
 SWEEP_CHECK_TF = "15m"
 STALE_TICKER_MAX_AGE_SEC = 900
+ENTRY_FILL_GRACE_SEC = 60   # patience for unfilled entry limits before _sync kills them (chop fill reliability)
 
 # ---------------------------------------------------------------------------
 # Self-learning (signal_weights.json ±0.05, clamped 0.5-1.5)

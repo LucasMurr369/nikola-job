@@ -311,6 +311,20 @@ class Daemon:
                 continue
             if pair in live_pairs:
                 continue
+            # Pending entry (limit not yet filled): give light_cycle a bounded
+            # grace to detect the fill before killing the entry. Pump-safe —
+            # no monitoring blackout, never kills a live order; deploys are
+            # 150s apart so at most one pending entry exists at a time.
+            if (not getattr(pos, "filled", True)
+                    and getattr(pos, "entry_order_id", "")):
+                try:
+                    _st = self.ex.exchange.fetch_order(pos.entry_order_id, f"{pair}:BTNL")
+                    _ostatus = _st.get("status", "")
+                except Exception:
+                    _ostatus = ""   # can't verify -> keep waiting (safe default)
+                if _ostatus == "open" and getattr(pos, "entry_order_ts", 0) \
+                        and (time.time() - pos.entry_order_ts) < cfg.ENTRY_FILL_GRACE_SEC:
+                    continue        # still attempting a fill — keep, light_cycle detects
             # Position is gone from exchange — remove from active + cancel orphans
             if getattr(pos, "filled", True):
                 log.info(f"Position {pair} closed on exchange — removing from active")
@@ -594,6 +608,7 @@ class Daemon:
             self.active.pop(pair, None)
             return False
         pos.entry_order_id = entry_order.get("id", "") if entry_order else ""
+        pos.entry_order_ts = time.time()   # for _sync grace window (entry-fill patience)
         # Poll entry order until filled (fixes reduce-only race on BTNL margin)
         entry_id = pos.entry_order_id
         entry_filled = False
