@@ -1116,7 +1116,19 @@ class Daemon:
     def _deploy(self, signal: dict) -> None:
         pair = signal["pair"]
         direction = "LONG" if signal["composite_signal"] == "BUY" else "SHORT"
-        price = signal["current_price"]
+        price = signal["current_price"]        # prior 1h close (signals.py:434)
+        # Anchored entry -- keeps all SL/TP geometry but stops entry churn:
+        # in an uptrend the 1h-close buy-LIMIT sits *below* spot and never fills,
+        # so the 3:1 edge is never harvested (observed 3 deploys/6min abandoned).
+        # Anchor the LIMIT to the live last price when it is above the 1h-close
+        # so the entry fills on the next tick; keep the 1h-close as a floor in
+        # downturns (never chase above the signal price). Geometry (SL2/TP1/TP2)
+        # rebases onto the filled price, RR distances unchanged.
+        spot = self.ex.fetch_ticker(pair).get("last", 0.0) or 0.0
+        if direction == "LONG" and spot > price > 0:
+            price = spot
+        elif direction == "SHORT" and 0 < spot < price:
+            price = spot
         if price <= 0:
             return
         confidence = signal["confidence"]
