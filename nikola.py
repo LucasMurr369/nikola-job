@@ -211,11 +211,13 @@ class Daemon:
                 self.ex.fetch_ticker(pair).get("last", 0)
             r = self.engine.r_multiple(pos, price) if price else 0
             tp = pos.tp
+            tp1 = getattr(tp, "tp1_filled", False) if tp else False
+            tp2 = getattr(tp, "tp2_filled", False) if tp else False
             lines.append(
                 f"  {pair} {'LONG' if pos.direction == 'LONG' else 'SHORT'} "
                 f"@ {pos.entry_price:.5f}  R={r:+.2f}  [{pos.state.label}]  "
-                f"TP1:{'v' if tp.tp1_filled else '-'} "
-                f"TP2:{'v' if tp.tp2_filled else '-'}"
+                f"TP1:{'v' if tp1 else '-'} "
+                f"TP2:{'v' if tp2 else '-'}"
             )
         return "\n".join(lines)
 
@@ -537,22 +539,29 @@ class Daemon:
             log.error(f"LIVE entry failed for {pair} — position NOT opened")
             self.active.pop(pair, None)
             return False
-        pos.entry_confirmed = True  # entry order placed on exchange
         pos.entry_order_id = entry_order.get("id", "") if entry_order else ""
         # Poll entry order until filled (fixes reduce-only race on BTNL margin)
         entry_id = pos.entry_order_id
+        entry_filled = False
         for attempt in range(10):
             if not entry_id:
                 break
             try:
                 eo = mx.fetch_order(entry_id, btnl)
                 if eo.get("status") == "closed":
+                    entry_filled = True
                     break
             except Exception:
                 pass
             time.sleep(0.5)
         else:
             log.warning(f"Entry for {pair} not filled after 5s — proceeding with protection placement")
+        if entry_filled:
+            pos.entry_confirmed = True
+            pos.filled = True
+        else:
+            pos.entry_confirmed = False
+            pos.filled = False
         # SL2 (full exit stop-loss-limit) — CRITICAL: must succeed
         close_side = "sell" if pos.direction == "LONG" else "buy"
         sl_order = place_sl(mx, btnl, side, size.base_amount,
@@ -644,6 +653,16 @@ class Daemon:
     def _verify_protection_orders(self, pair: str, pos: strat.Position) -> None:
         """Check SL2/TP1/TP2 are still on the exchange; re-place if missing.
         Guards against Kraken cancelling reduce-only orders post-placement."""
+        # Check if a pending entry order has filled since deploy
+        if not getattr(pos, 'filled', True) and getattr(pos, 'entry_order_id', ''):
+            try:
+                eo = self.ex.exchange.fetch_order(pos.entry_order_id, f"{pair}:BTNL")
+                if eo.get("status") == "closed":
+                    pos.filled = True
+                    pos.entry_confirmed = True
+                    log.info(f"Entry for {pair} filled on light cycle — activating protection checks")
+            except Exception:
+                pass
         if not pos.filled or not getattr(pos, 'entry_confirmed', False):
             return
         btnl = f"{pair}:BTNL"
@@ -652,14 +671,25 @@ class Daemon:
         from engine.exchange import place_sl, place_tp
 
         def _order_open(oid):
-            """Verify an order is still 'open' on the exchange by ID."""
+            """Verify an order is still 'open' on the exchange by ID.
+            Retries on transient CCXT errors (nonce collision, timeout)."""
             if not oid:
                 return False
-            try:
-                o = mx.fetch_order(oid, btnl)
-                return o.get("status") == "open"
-            except Exception:
-                return False
+            for _attempt in range(3):
+                try:
+                    o = mx.fetch_order(oid, btnl)
+                    return o.get("status") == "open"
+                except Exception as e:
+                    err = str(e).lower()
+                    if 'nonce' in err:
+                        # Jump nonce past Kraken's seen value (same mechanism as price feed)
+                        try:
+                            import engine.exchange as _ex_mod
+                            _ex_mod._nonce_state = int(time.time() * 1000) + 120000
+                        except Exception:
+                            pass
+                    time.sleep(0.5)
+            return False
 
         try:
             # --- Remediation: if SL2 was never placed, place it now ---
@@ -691,13 +721,16 @@ class Daemon:
 
             # --- SL2 check (verify by order ID, not fetch_open_orders) ---
             sl2_id = getattr(pos, 'sl2_order_id', '')
-            if sl2_id and not _order_open(sl2_id):
+            if not sl2_id or not _order_open(sl2_id):
                 log.warning(f"SL2 missing for {pair} — re-placing with correct side")
                 sl_order = place_sl(mx, btnl, side, pos.base_amount,
                                     pos.sl2_price, pos.leverage)
                 if sl_order:
                     pos.sl2_order_id = sl_order.get("id", "")
                     log.info(f"SL2 re-placed for {pair} — {pos.sl2_order_id}")
+                elif sl2_id and _order_open(sl2_id):
+                    # Re-placement failed but original SL2 is still active — transient error
+                    log.warning(f"SL2 re-place FAILED for {pair} — original still active, will retry next cycle")
                 else:
                     log.critical(f"SL2 re-place FAILED for {pair} — emergency close")
                     self._close_position(pair, pos.current_price,
@@ -705,9 +738,9 @@ class Daemon:
                     return
 
             # --- TP1 check ---
-            if pos.tp and not pos.tp.tp1_filled:
+            if pos.tp and not pos.tp.tp1_filled and pos.tp.tp1_price > 0:
                 tp1_id = getattr(pos, 'tp1_order_id', '')
-                if tp1_id and not _order_open(tp1_id):
+                if not tp1_id or not _order_open(tp1_id):
                     log.info(f"TP1 missing for {pair} — re-placing with correct side")
                     tp1_order = place_tp(mx, btnl, side,
                                          pos.base_amount * pos.tp.tp1_pct,
@@ -716,9 +749,9 @@ class Daemon:
                         pos.tp1_order_id = tp1_order.get("id", "")
 
             # --- TP2 check ---
-            if pos.tp and not pos.tp.tp2_filled:
+            if pos.tp and not pos.tp.tp2_filled and pos.tp.tp2_price > 0:
                 tp2_id = getattr(pos, 'tp2_order_id', '')
-                if tp2_id and not _order_open(tp2_id):
+                if not tp2_id or not _order_open(tp2_id):
                     log.info(f"TP2 missing for {pair} — re-placing with correct side")
                     tp2_order = place_tp(mx, btnl, side,
                                          pos.base_amount * pos.tp.tp2_pct,
@@ -815,6 +848,112 @@ class Daemon:
                 r_multiple=float(r),
             ))
 
+    def _recover_live_positions(self) -> None:
+        """Load existing Kraken open positions into self.active (LIVE only).
+
+        Rebuilds Position objects from exchange positions + their open SL2/TP1/TP2
+        orders so the light cycle can manage them (trail runner, verify exits).
+        Without this the bot is blind: it thinks Active=0 and fires doomed
+        duplicate deploys that Kraken rejects with 'Insufficient initial margin'.
+        """
+        if self.paper:
+            return  # paper mode has its own state
+        try:
+            ex_positions = self.ex.fetch_positions()
+        except Exception as e:
+            log.warning(f"position recovery: fetch_positions failed: {e}")
+            return
+        try:
+            orders = self.ex.fetch_open_orders()
+        except Exception:
+            orders = []
+        from engine.config import normalize_btln_symbol, TP_RUNG_PCTS, SL2_PCT
+        from engine.strategy import Position, TPRungs
+        # index orders by pair for SL2/TP1/TP2 re-attachment
+        by_pair: dict[str, list] = {}
+        for o in orders:
+            psym = o.get("symbol", "")
+            # Normalize Kraken-native symbol (PAXGUSD:BTNL) -> CCXT format (PAXG/USD:BTNL)
+            # so it matches the position symbol from fetch_positions()
+            psym = normalize_btln_symbol(psym)
+            by_pair.setdefault(psym, []).append(o)
+        user_owned = {"SOL/USD", "ETH/USD"}  # never touch — user-owned pairs
+        recovered = 0
+        skipped = 0
+        for p in ex_positions:
+            if float(p.get("contracts", 0) or 0) == 0:
+                continue
+            # Skip dust positions (zero margin — e.g., leftover 0.2 PEPE tokens)
+            if float(p.get("initialMargin", 0) or 0) <= 0.0:
+                skipped += 1
+                continue
+            sym = p.get("symbol", "")
+            pair = normalize_btln_symbol(sym)  # -> "BTC/USD:BTNL" etc
+            if pair.endswith(":BTNL"):
+                pair = pair[:-5]  # strip suffix for SYMBOLS lookup
+            if pair in user_owned or pair not in cfg.SYMBOLS:
+                continue
+            direction = "LONG" if str(p.get("side", "")).lower() == "long" else "SHORT"
+            info = p.get("info", {})
+            entry_val = float(info.get("cost", 0) or 0)
+            vol = float(info.get("vol", 0) or 0)
+            entry = (entry_val / vol) if vol > 0 else 0.0
+            contracts = float(p.get("contracts", 0))
+            lev = cfg.PAIR_LEVERAGE.get(pair, cfg.PREFERRED_LEVERAGE)
+            pos = Position(
+                pair=pair, direction=direction, entry_price=entry or 1e-9,
+                base_amount=abs(contracts), leverage=lev,
+                signal_type="RECOVERED", filled=True,
+            )
+            # mark recovered positions as protected (set dynamically, not in __init__)
+            pos.entry_confirmed = True
+            pos.sl2_set = True
+            # re-attach TP/SL prices + order IDs from open orders if present
+            tp_list = []  # (price, order_id) for reduce-only sells
+            sl2_price = None
+            sl2_oid = ""
+            for o in by_pair.get(normalize_btln_symbol(sym), []):
+                op = float(o.get("average") or o.get("price") or 0.0)
+                if op <= 0.0:
+                    continue
+                oinfo = o.get("info", {})
+                ofee = str(oinfo)
+                # classify by order type: stop-loss-limit -> SL2, limit -> TP
+                if "stop" in ofee.lower() and "loss" in ofee.lower():
+                    sl2_price = op
+                    sl2_oid = o.get("id", "")
+                elif o.get("reduceOnly"):
+                    tp_list.append((op, o.get("id", "")))
+            if sl2_price is not None:
+                pos.sl2_price = sl2_price
+                pos.sl2_order_id = sl2_oid
+            if tp_list:
+                # LONG: lower sell = TP1, higher = TP2; SHORT: reverse
+                tp_list.sort(key=lambda x: x[0], reverse=(direction == "SHORT"))
+                pos.tp = TPRungs(tp1_price=0.0, tp2_price=0.0)
+                pos.tp.tp1_price = tp_list[0][0]
+                pos.tp1_order_id = tp_list[0][1]
+                if len(tp_list) >= 2:
+                    pos.tp.tp2_price = tp_list[1][0]
+                    pos.tp2_order_id = tp_list[1][1]
+            else:
+                # No TP orders found — create default ladder from entry price
+                pos.tp = TPRungs(
+                    tp1_price=entry * (1 + TP_RUNG_PCTS[0][2]) if direction == "LONG"
+                    else entry * (1 - TP_RUNG_PCTS[0][2]),
+                    tp2_price=entry * (1 + TP_RUNG_PCTS[-1][2]) if direction == "LONG"
+                    else entry * (1 - TP_RUNG_PCTS[-1][2]),
+                )
+            if pos.sl2_price == 0.0:
+                pos.sl2_price = entry * (1 - SL2_PCT) if direction == "LONG" else entry * (1 + SL2_PCT)
+            if pos.peak_price == 0.0:
+                pos.peak_price = entry or pos.entry_price
+            self.active[pair] = pos
+            self.cooldowns[pair] = time.time()  # 1h cooldown so bot doesn't ADD to pair
+            recovered += 1
+        log.info(f"position recovery: loaded {recovered} live positions from Kraken "
+                 f"(skipped {skipped} dust/orphan)")
+
     # -- budget: paper cash vs live exchange margin --
     def _deployable_budget(self) -> float:
         """Return the deployable budget for position sizing.
@@ -835,7 +974,8 @@ class Daemon:
             seed_mock_candles()  # re-seed so trends evolve per scan
         else:
             self.ex.refresh_mtf_candles()
-        self.mtf = sig.MTFEngine(signal_weights=sig.load_signal_weights())
+        self.mtf = sig.MTFEngine(signal_weights=sig.load_signal_weights(),
+                                 paper_sim=self.paper)
         signals = self.mtf.compute_all_signals()
         ranked = self.mtf.rank_candidates(signals)
         # In paper mode, block FOREIGN_PAIRS (owned by live bot);
@@ -925,6 +1065,8 @@ class Daemon:
         if self.paper:
             print(f" Foreign (never trade): {', '.join(sorted(FOREIGN_PAIRS))}")
         print(f"{'='*68}")
+        if not self.paper:
+            self._recover_live_positions()          # hydrate self.active from Kraken
         try:
             while True:
                 try:

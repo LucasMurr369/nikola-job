@@ -556,6 +556,16 @@ class ExchangeManager:
     def fetch_balance(self) -> Dict:
         return self.exchange.fetch_balance()
 
+    def fetch_positions(self) -> list:
+        if self.paper:
+            return []
+        return self.exchange.fetch_positions()
+
+    def fetch_open_orders(self) -> list:
+        if self.paper:
+            return []
+        return self.exchange.fetch_open_orders()
+
     def free_margin(self) -> float:
         if self.paper:
             return self.exchange.get_free_margin()

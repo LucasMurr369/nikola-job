@@ -417,8 +417,9 @@ class MTFEngine:
         top = eng.find_best_signals(sigs, n=5, held=set(), cooldowns={})
     """
 
-    def __init__(self, signal_weights: Optional[Dict[str, Dict]] = None):
+    def __init__(self, signal_weights: Optional[Dict[str, Dict]] = None, paper_sim: bool = False):
         self.signal_weights = signal_weights if signal_weights is not None else load_signal_weights()
+        self.paper_sim = paper_sim
 
     def compute_all_signals(self) -> List[Dict[str, Any]]:
         """Score every pair: votes → synthesize → filter_by_leader."""
@@ -454,6 +455,10 @@ class MTFEngine:
             win_rate = float(w.get("win_rate", 0) or 0)
             weight = float(w.get("weight", 1.0) or 1.0)
             boost = 0.02 if (trades >= 5 and win_rate > 0.5 and weight >= 1.0) else 0.0
+            # LIVE only: do not deploy on signal types proven to lose
+            # (weight down-weighted AND a real sample showing no wins).
+            if not self.paper_sim and trades >= 3 and weight < 1.0 and win_rate <= 0.0:
+                continue
             c = dict(s)
             c["rank_score"] = round(float(s.get("confidence", 0)) + boost, 4)
             c["xp_boost"] = boost
