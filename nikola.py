@@ -314,6 +314,8 @@ class Daemon:
             # Position is gone from exchange — remove from active + cancel orphans
             if getattr(pos, "filled", True):
                 log.info(f"Position {pair} closed on exchange — removing from active")
+            else:
+                log.info(f"Position {pair} entry not filled — removing from active")
             btnl = f"{pair}:BTNL"
             for oid_attr in ("sl2_order_id", "tp1_order_id", "tp2_order_id",
                              "entry_order_id"):
