@@ -219,7 +219,7 @@ class Daemon:
                     else "arm" if (tp and getattr(tp, "tp2_price", 0) > 0) else "-")
             lines.append(
                 f"  {pair} {'LONG' if pos.direction == 'LONG' else 'SHORT'} "
-                f"@ {pos.entry_price:.5f}  R={r:+.2f}  [{pos.state.label}]  "
+                f"@ {pos.entry_price:.8g}  R={r:+.2f}  [{pos.state.label}]  "
                 f"TP1:{_tp1} TP2:{_tp2}"
             )
         return "\n".join(lines)
@@ -1206,11 +1206,11 @@ class Daemon:
         # XP for opening a trade
         g = self.state.gamification
         g.xp += g.XP_PER_TRADE
-        print(f"\n  >> DEPLOY {pair} {direction} @ {price:.5f}")
+        print(f"\n  >> DEPLOY {pair} {direction} @ {price:.8g}")
         print(f"    base={size.base_amount:.4f}  lev={size.leverage}x  "
               f"margin=${size.margin_cost:.2f}  conf={confidence:.2f}")
-        print(f"    SL1=${pos.sl1_price:.5f}  TP1=${pos.tp.tp1_price:.5f}  "
-              f"TP2=${pos.tp.tp2_price:.5f}  SL2=${pos.sl2_price:.5f}")
+        print(f"    SL1=${pos.sl1_price:.8g}  TP1=${pos.tp.tp1_price:.8g}  "
+              f"TP2=${pos.tp.tp2_price:.8g}  SL2=${pos.sl2_price:.8g}")
         q = self.god_code.quote_for_trade(pair, direction, 0)
         print(f'  >> God Code: "{q}"')
         # --- LIVE MODE: place real Kraken BTNL orders ---
