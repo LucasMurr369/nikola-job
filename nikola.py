@@ -1030,6 +1030,45 @@ class Daemon:
             recovered += 1
         log.info(f"position recovery: loaded {recovered} live positions from Kraken "
                  f"(skipped {skipped} dust/orphan)")
+        # -- housekeeping: cancel EXACT-DUPLICATE protection orders left by the
+        # old nonce-cascade run. Guards: only cancels a copy at the SAME price
+        # as an order we are CONFIRMED tracking (tracked ID must be non-empty);
+        # never a distinct TP rung, never the tracked order itself, never an
+        # entry/buy order, never an order whose tracked ID is empty. Protection
+        # is never reduced. Idempotent — a clean recovery cancels nothing.
+        try:
+            for pair, pos in self.active.items():
+                btnl = pair + ":BTNL"
+                sl2_id = pos.sl2_order_id or ""
+                tp1_id = pos.tp1_order_id or ""
+                tp2_id = pos.tp2_order_id or ""
+                sl2_price = pos.sl2_price or 0.0
+                tp1_price = pos.tp.tp1_price or 0.0
+                tp2_price = pos.tp.tp2_price or 0.0
+                for o in by_pair.get(btnl, []):
+                    oid = o.get("id", "")
+                    if not oid or oid in {sl2_id, tp1_id, tp2_id}:
+                        continue  # keep every tracked copy
+                    oinfo = str(o.get("info", {})).lower()
+                    price = float(o.get("average") or o.get("price") or 0.0)
+                    if price <= 0:
+                        continue
+                    is_sl2 = ("stop" in oinfo and "loss" in oinfo)
+                    is_tp = bool(o.get("reduceOnly"))
+                    is_dup = (
+                        (is_sl2 and sl2_id and sl2_price and abs(price - sl2_price) < 1e-9)
+                        or (is_tp and tp1_id and tp1_price and abs(price - tp1_price) < 1e-9)
+                        or (is_tp and tp2_id and tp2_price and abs(price - tp2_price) < 1e-9)
+                    )
+                    if not is_dup:
+                        continue
+                    try:
+                        self.ex.exchange.cancel_order(oid, btnl)
+                        log.info(f"  dedup: cancelled duplicate {pair} order {oid} @ {price}")
+                    except Exception as ce:
+                        log.warning(f"  dedup: cancel failed {pair} {oid}: {ce}")
+        except Exception as de:
+            log.warning(f"dedup housekeeping skipped: {de}")
 
     # -- budget: paper cash vs live exchange margin --
     def _deployable_budget(self) -> float:

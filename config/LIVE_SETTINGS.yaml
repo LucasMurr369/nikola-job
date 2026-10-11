@@ -1,0 +1,174 @@
+# =====================================================================
+# Nikola — LIVE Settings Snapshot  (as of 2026-10-11 rebuild, post-fix 174adf6)
+# =====================================================================
+# Mirrors engine/config.py verbatim so these params can be shared/audited
+# without reading source. The bot does NOT auto-load this file (it only
+# reads config/settings.yaml for the leverage overlay); this is a reference
+# snapshot for forks and for re-deploying the exact live state.
+#
+# Geometry source-of-truth: the TP/SL reconfigure directives
+# (2026-10-05..2026-10-07) currently live on Kraken.
+# =====================================================================
+
+pair_universe: [AAVE/USD, ADA/USD, ALGO/USD, AVAX/USD, BCH/USD, BTC/USD, CRV/USD, DOGE/USD, DOT/USD, ETH/USD, HBAR/USD, HYPE/USD, LINK/USD, LTC/USD, NEAR/USD, PAXG/USD, PENGU/USD, PEPE/USD, RENDER/USD, SHIB/USD, SOL/USD, SUI/USD, TRX/USD, UNI/USD, WLD/USD, XLM/USD, XRP/USD, ZEC/USD]
+universe_note: "28-pair Kraken BTNL margin universe; XDG->DOGE mapped in normalize_btln_symbol"
+
+pair_leverage:
+  BTC/USD: 20
+  ETH/USD: 20
+  AAVE/USD: 5
+  ADA/USD: 10
+  ALGO/USD: 5
+  AVAX/USD: 5
+  BCH/USD: 5
+  CRV/USD: 5
+  DOGE/USD: 10
+  DOT/USD: 5
+  HBAR/USD: 5
+  HYPE/USD: 5
+  LINK/USD: 10
+  LTC/USD: 10
+  NEAR/USD: 5
+  PAXG/USD: 5
+  PENGU/USD: 3
+  PEPE/USD: 5
+  RENDER/USD: 5
+  SHIB/USD: 5
+  SOL/USD: 10
+  SUI/USD: 10
+  TRX/USD: 5
+  UNI/USD: 5
+  WLD/USD: 3
+  XLM/USD: 5
+  XRP/USD: 10
+  ZEC/USD: 5
+  preferred_leverage: 5
+  leverage_floor: 3
+  leverage_cap: 20
+  high_lev_pairs: [BTC/USD, ETH/USD]
+  lev_unlock_equity_usd: 150.0
+  lever_note: "BTC/ETH capped at 7x until equity >= 150 USD, then up to 20x"
+
+money_management:
+  total_margin_budget_usd: 1000000.0
+  paper_budget_usd: 300.0
+  margin_reserve_pct: 0.25
+  reentry_cooldown_sec: 3600
+  max_position_loss_usd: 10.0
+  fee_term_pct: 0.005
+  ratchet_profit_buffer_pct: 0.002
+  ratchet_sl1_buffer_pct: 0.005
+  lev_tiers: [[0.60, 20], [0.50, 10], [0.40, 7], [0.0, 3]]
+  margin_tiers: [[0.60, 0.08], [0.50, 0.05], [0.40, 0.03], [0.0, 0.01]]
+
+risk_limits:
+  max_total_positions: 0
+  max_meme_positions: 0
+  max_high_beta_positions: 0
+  min_free_margin_usd: 2.0
+  equity_scale_min: 0.5
+  equity_scale_max: 1.35
+  equity_baseline_usd: 100.0
+  max_positions_note: "MAX_OPEN_POSITIONS=0 -> budget is the only gate (2026-10-07)"
+
+stops:
+  sl1_pct: 0.0210
+  sl1_conviction_pct: 0.015
+  sl2_pct: 0.0440
+  stop_loss_pct: 0.0210
+  trail_stop_pct: 0.0030
+  trail_wide_pct: 0.0060
+  trail_wide_arm_pct: 0.025
+  trail_lock_ratio: 0.5
+  trail_trigger_ratio: 0.0
+  sl_limit_band_pct: 0.015
+  breakeven_buffer_pct: 0.02
+  btc_cascade_trigger_pct: 0.04
+  cascade_scaleout_pct: 0.15
+  stops_note: "SL1 -2.1% partial+delists TPs; SL2 -4.4% full exit; BE ratchet after TP1+TP2; two-stage trail 0.30%->0.60% wide @ +2.5%"
+
+take_profits:
+  tp1_pct: 0.014
+  tp1_allocation: 0.40
+  tp2_pct: 0.028
+  tp2_allocation: 0.40
+  runner_allocation: 0.20
+  tp_rungs_note: "TP1 +1.4%/40% + TP2 +2.8%/40% (mirrors TP1, 2x distance); final 20% rides trailing stop"
+  major_tp_pcts:
+    BTC/USD: [0.010, 0.020]
+    ETH/USD: [0.010, 0.020]
+
+groups:
+  meme_group: [DOGE/USD, SHIB/USD, PEPE/USD, PENGU/USD, WLD/USD]
+  major_group: [BTC/USD, ETH/USD, PAXG/USD, LTC/USD, BCH/USD, XRP/USD, TRX/USD, XLM/USD, ADA/USD, HBAR/USD]
+  coin_groups_BTC: [BTC, BCH, LTC, HBAR, PAXG, TRX, XLM, ALGO, CRV, ZEC]
+  coin_groups_ETH: [ETH, ADA, SOL, AVAX, DOT, LINK, UNI, NEAR, AAVE, WLD, RENDER, SUI, HYPE, PENGU]
+  coin_groups_XRP: [XRP]
+  leaders: [BTC, ETH, XRP]
+  meme_coins: [DOGE, SHIB, PEPE]
+  leader_dir_threshold: 0.01
+
+amount_precision:
+  default: 8
+  PEPE/USD: 0
+  SHIB/USD: 0
+  PENGU/USD: 2
+  precision_note: "decimal fix for all coins (PEPE/SHIB=0, PENGU=2)"
+
+pair_min_base:
+  BTC/USD: 0.00005
+  ETH/USD: 0.001
+  PAXG/USD: 0.001
+  BCH/USD: 0.01
+  ZEC/USD: 0.01
+  AAVE/USD: 0.05
+  LTC/USD: 0.1
+  LINK/USD: 0.55
+  AVAX/USD: 0.5
+  UNI/USD: 1.5
+  WLD/USD: 11.0
+  ADA/USD: 20.0
+  ALGO/USD: 41.0
+  CRV/USD: 20.0
+  DOGE/USD: 8.0
+  DOT/USD: 3.9
+  HBAR/USD: 55.0
+  HYPE/USD: 0.1
+  NEAR/USD: 4.0
+  PENGU/USD: 700.0
+  PEPE/USD: 1500000.0
+  RENDER/USD: 2.5
+  SHIB/USD: 770000.0
+  SOL/USD: 0.06
+  SUI/USD: 5.0
+  TRX/USD: 16.0
+  XLM/USD: 30.0
+  XRP/USD: 1.65
+  fallback_min_base_amount: 8.0
+
+timing:
+  light_loop_interval: 15
+  full_scan_interval: 150
+  ticks_per_scan: 20
+  sweep_check_tf: 15m
+  stale_ticker_max_age_sec: 900
+  ranked_deploy_cadence_sec: 20
+
+mtf:
+  timeframes: [1m, 5m, 15m, 30m, 1h, 4h]
+  tf_order: [4h, 1h, 30m, 15m, 5m, 1m]
+  candle_limit: 200
+  min_tf_agree_deploy: 2
+
+learning:
+  weight_min: 0.5
+  weight_max: 1.5
+  weight_adjust: 0.05
+  learning_note: "signal_weights.json +/-0.05, clamped 0.5-1.5; reactive self-learning"
+
+live_guardrails:
+  nonce_strategy: "persisted, forward-only (max(state+1, now+60s); _jump_nonce max(state+1, now+300s))"
+  position_recovery: "fetch_positions + fetch_open_orders re-attach SL2/TP1/TP2 on startup (Fix A), then dedup exact-duplicate protection orders"
+  account_shared: "NEVER cancel-all / flatten — only surgical per-order cancels of EXACT duplicates"
+  protected_pairs_never_deploy: [ETH/USD, SOL/USD]
+  paper_mode: false
