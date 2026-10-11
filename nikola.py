@@ -211,13 +211,16 @@ class Daemon:
                 self.ex.fetch_ticker(pair).get("last", 0)
             r = self.engine.r_multiple(pos, price) if price else 0
             tp = pos.tp
-            tp1 = getattr(tp, "tp1_filled", False) if tp else False
-            tp2 = getattr(tp, "tp2_filled", False) if tp else False
+            # Unambiguous TP state: hit(TP tripped) / arm(TP configured & live, not yet hit) / -(no TP ladder yet).
+            # Fixes the old 'v'/'-' board which could not distinguish "armed, waiting" from "not placed".
+            _tp1 = ("hit" if getattr(tp, "tp1_filled", False)
+                    else "arm" if (tp and getattr(tp, "tp1_price", 0) > 0) else "-")
+            _tp2 = ("hit" if getattr(tp, "tp2_filled", False)
+                    else "arm" if (tp and getattr(tp, "tp2_price", 0) > 0) else "-")
             lines.append(
                 f"  {pair} {'LONG' if pos.direction == 'LONG' else 'SHORT'} "
                 f"@ {pos.entry_price:.5f}  R={r:+.2f}  [{pos.state.label}]  "
-                f"TP1:{'v' if tp1 else '-'} "
-                f"TP2:{'v' if tp2 else '-'}"
+                f"TP1:{_tp1} TP2:{_tp2}"
             )
         return "\n".join(lines)
 
