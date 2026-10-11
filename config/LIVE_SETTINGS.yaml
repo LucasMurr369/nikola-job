@@ -51,6 +51,7 @@ pair_leverage:
 
 money_management:
   total_margin_budget_usd: 1000000.0
+  budget_note: "config.py line-75 comment '$100 live budget' is STALE; actual live value is 1_000_000.0 ($100 cap removed 2026-10-09)"
   paper_budget_usd: 300.0
   margin_reserve_pct: 0.25
   reentry_cooldown_sec: 3600
@@ -85,6 +86,7 @@ stops:
   breakeven_buffer_pct: 0.02
   btc_cascade_trigger_pct: 0.04
   cascade_scaleout_pct: 0.15
+  btc_cascade_note: "wired (nikola.py:345-363): BTC -4m 1m momentum -> 15% reduce-only scale-out, LONG+SHORT safe"
   stops_note: "SL1 -2.1% partial+delists TPs; SL2 -4.4% full exit; BE ratchet after TP1+TP2; two-stage trail 0.30%->0.60% wide @ +2.5%"
 
 take_profits:
@@ -107,6 +109,7 @@ groups:
   leaders: [BTC, ETH, XRP]
   meme_coins: [DOGE, SHIB, PEPE]
   leader_dir_threshold: 0.01
+  signal_filter_note: "skip LIVE deploy when a signal type has trades>=3, weight<1.0, win_rate<=0.0 (engine/signals.py:460) — down-weights proven losers"
 
 amount_precision:
   default: 8
@@ -149,10 +152,9 @@ pair_min_base:
 timing:
   light_loop_interval: 15
   full_scan_interval: 150
-  ticks_per_scan: 20
   sweep_check_tf: 15m
   stale_ticker_max_age_sec: 900
-  ranked_deploy_cadence_sec: 20
+  deploy_note: "one new position attempted per full_scan (~150s) via MTF best-signal (find_best_signals -> _deploy); light cycles (15s) only monitor stops/TPs/ratchet, never deploy"
 
 mtf:
   timeframes: [1m, 5m, 15m, 30m, 1h, 4h]
@@ -169,6 +171,22 @@ learning:
 live_guardrails:
   nonce_strategy: "persisted, forward-only (max(state+1, now+60s); _jump_nonce max(state+1, now+300s))"
   position_recovery: "fetch_positions + fetch_open_orders re-attach SL2/TP1/TP2 on startup (Fix A), then dedup exact-duplicate protection orders"
-  account_shared: "NEVER cancel-all / flatten — only surgical per-order cancels of EXACT duplicates"
+  account_shared: "NEVER cancel-all / flatten — only surgical per-order cancels of EXACT duplicates (nikola.py _recover_live_positions)"
   protected_pairs_never_deploy: [ETH/USD, SOL/USD]
   paper_mode: false
+
+defaults:
+  dry_run: true
+  dry_run_note: "DRY_RUN=True in config.py; live launch uses --live which overrides to False"
+  free_margin_min: 1.0
+  min_free_margin_usd: 2.0
+  equity_scale_min: 0.5
+  equity_scale_max: 1.35
+  equity_baseline_usd: 100.0
+  equity_scale: 1.0
+
+paper_mode:
+  paper_auto_execute: true
+  paper_trade_max_age_hours: 24
+  paper_budget_usd: 300.0
+  paper_note: "Nikola.md clean-state restart to $300 cash, 0 positions; ignored by live bot (--live)"
