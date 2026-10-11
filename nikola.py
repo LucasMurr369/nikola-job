@@ -1139,7 +1139,12 @@ class Daemon:
         # so the entry fills on the next tick; keep the 1h-close as a floor in
         # downturns (never chase above the signal price). Geometry (SL2/TP1/TP2)
         # rebases onto the filled price, RR distances unchanged.
-        spot = self.ex.fetch_ticker(pair).get("last", 0.0) or 0.0
+        # Use the cached 1m close (reliable for all pairs incl. small caps;
+        # no extra API), fall back to fetch_ticker last if 1m unavailable.
+        _c1m = sig.load_candles(pair, "1m")
+        spot = float(_c1m[-1][4]) if _c1m else 0.0
+        if not spot:
+            spot = self.ex.fetch_ticker(pair).get("last", 0.0) or 0.0
         if direction == "LONG" and spot > price > 0:
             price = spot
         elif direction == "SHORT" and 0 < spot < price:
