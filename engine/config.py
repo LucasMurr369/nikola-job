@@ -72,7 +72,7 @@ MTF_CANDLE_LIMIT = 200
 MIN_TF_AGREE_DEPLOY = 2  # >=2 of 6 TFs must agree at deploy time
 
 # ---------------------------------------------------------------------------
-# Money management — $100 live budget, $300 paper clean-slate (Nikola.md)
+# Money management — live budget ($1M; $100 cap removed 2026-10-09), $300 paper clean-slate (Nikola.md)
 # ---------------------------------------------------------------------------
 PREFERRED_LEVERAGE = 5
 LEVERAGE_FLOOR = 3
