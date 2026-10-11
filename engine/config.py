@@ -214,6 +214,7 @@ FULL_SCAN_INTERVAL = 150     # seconds — full scan (MTF refresh + signal scan)
 SWEEP_CHECK_TF = "15m"
 STALE_TICKER_MAX_AGE_SEC = 900
 ENTRY_FILL_GRACE_SEC = 60   # patience for unfilled entry limits before _sync kills them (chop fill reliability)
+ENTRY_SLIPPAGE_PCT = 0.003  # thin buy-limit buffer above the 1m close so chop/uptrend entries fill (bounded 0.3% slip; RR rebases onto filled price, distances unchanged)
 
 # ---------------------------------------------------------------------------
 # Self-learning (signal_weights.json ±0.05, clamped 0.5-1.5)

@@ -1132,23 +1132,22 @@ class Daemon:
         pair = signal["pair"]
         direction = "LONG" if signal["composite_signal"] == "BUY" else "SHORT"
         price = signal["current_price"]        # prior 1h close (signals.py:434)
-        # Anchored entry -- keeps all SL/TP geometry but stops entry churn:
-        # in an uptrend the 1h-close buy-LIMIT sits *below* spot and never fills,
-        # so the 3:1 edge is never harvested (observed 3 deploys/6min abandoned).
-        # Anchor the LIMIT to the live last price when it is above the 1h-close
-        # so the entry fills on the next tick; keep the 1h-close as a floor in
-        # downturns (never chase above the signal price). Geometry (SL2/TP1/TP2)
-        # rebases onto the filled price, RR distances unchanged.
-        # Use the cached 1m close (reliable for all pairs incl. small caps;
-        # no extra API), fall back to fetch_ticker last if 1m unavailable.
+        # Anchored + buffered entry -- keeps all SL/TP geometry but stops entry
+        # churn. A plain 1h-close buy-LIMIT sits below spot in uptrends and never
+        # fills (observed 3 deploys/6min abandoned; DOGE/WWL churned in chop).
+        # Anchor the LIMIT to the live 1m close and add a thin slip buffer so it
+        # catches the ask and fills in chop/uptrends (calm-window friendly:
+        # bounded 0.3% slip; RR rebases onto the filled price, distances
+        # unchanged). In a real downtrend keep the 1h-close floor (don't chase).
         _c1m = sig.load_candles(pair, "1m")
         spot = float(_c1m[-1][4]) if _c1m else 0.0
         if not spot:
             spot = self.ex.fetch_ticker(pair).get("last", 0.0) or 0.0
-        if direction == "LONG" and spot > price > 0:
-            price = spot
-        elif direction == "SHORT" and 0 < spot < price:
-            price = spot
+        _slp = cfg.ENTRY_SLIPPAGE_PCT
+        if direction == "LONG" and price > 0 and 0 < spot >= price * (1.0 - _slp):
+            price = spot * (1.0 + _slp)       # near/above 1h-close -> fill at spot+buffer
+        elif direction == "SHORT" and price > 0 and 0 < spot <= price * (1.0 + _slp):
+            price = spot * (1.0 - _slp)
         if price <= 0:
             return
         confidence = signal["confidence"]
