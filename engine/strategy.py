@@ -102,7 +102,14 @@ class Position:
     trade_id: str = ""                 # links to paper_trades.json ledger
     # Post-fill stop ratchet (active after TP1/TP2 fill)
     sl1_cancelled: bool = False      # initial -2.1% SL1 cancelled on exchange after TP1
-    sl2_ratcheted: bool = False      # SL2 hard stop ratcheted up to TP1 level after TP2
+    sl2_ratcheted: bool = False    # SL2 hard stop ratcheted up to TP1 level after TP2
+    # Exchange order IDs — declared with empty-string defaults so bare reads
+    # (recovery housekeeping line ~1063, board repr) never raise AttributeError
+    # before the IDs are attached from the exchange on recovery.
+    sl2_order_id: str = ""
+    tp1_order_id: str = ""
+    tp2_order_id: str = ""
+    entry_order_id: str = ""
 
 
 @dataclass

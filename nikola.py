@@ -1042,6 +1042,14 @@ class Daemon:
                 )
             if pos.sl2_price == 0.0:
                 pos.sl2_price = entry * (1 - SL2_PCT) if direction == "LONG" else entry * (1 + SL2_PCT)
+            # Default any TP prices not found live on the exchange from entry, so
+            # light_cycle can place the missing rung. When only TP1 was live
+            # (tp_list len 1) tp2_price stayed 0.0 -> gate at light_cycle 848
+            # (tp2_price > 0) never armed TP2 -> "TP2:-" forever.
+            if pos.tp.tp1_price == 0.0:
+                pos.tp.tp1_price = entry * (1 + TP_RUNG_PCTS[0][2]) if direction == "LONG" else entry * (1 - TP_RUNG_PCTS[0][2])
+            if pos.tp.tp2_price == 0.0:
+                pos.tp.tp2_price = entry * (1 + TP_RUNG_PCTS[-1][2]) if direction == "LONG" else entry * (1 - TP_RUNG_PCTS[-1][2])
             if pos.peak_price == 0.0:
                 pos.peak_price = entry or pos.entry_price
             self.active[pair] = pos
