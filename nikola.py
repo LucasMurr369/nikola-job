@@ -1103,7 +1103,7 @@ class Daemon:
 
         Paper mode:  self.cash (paper budget).
         Live mode:   all free margin from the Kraken exchange (10% hold removed;
-        MARGIN_RESERVE_PCT 5% provides the margin-call buffer).
+        MARGIN_RESERVE_PCT 0% (full deploy — all free_margin); BTC SL2/cascade guard the book).
         """
         if self.paper:
             return self.cash
