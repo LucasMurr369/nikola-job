@@ -77,7 +77,7 @@ Each era taught one thing — and each lesson lives in Nikola's code today.
 
 📜 1602 — Dutch East India Co. (first joint-stock, first margin)
     Lesson: Diversification across voyages.
-    → Nikola's MAX_OPEN_POSITIONS=3: never all eggs in one trade.
+    → Nikola: MAX_OPEN_POSITIONS=0 (budget gate, no count cap) + MARGIN_TIERS (≤8% per pair): never all eggs in one trade.
 
 📜 1860s — Telegraph ticker (Edwin Bell)
     Lesson: Real-time data changes everything.

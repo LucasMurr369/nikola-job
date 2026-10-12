@@ -104,7 +104,7 @@ Fred was the codename for the reasoning brain. Each build absorbed capabilities 
 | **28 pairs** | Hardcoded in config.py PAIRS_TO_TRADE |
 | **5% SL / 15% TP** | Core parameters (evolved to SL1=-2.1%, SL2=-4.4%, TP1=+1.4%, TP2=+2.8%) |
 | **$300 cap** | Paper mode clean slate: $300 cash, 0 positions |
-| **Max 4 positions** | MAX_OPEN_POSITIONS=3 (live), 4 (paper per config) |
+| **Max 4 positions** | MAX_OPEN_POSITIONS=0 (live — budget-only gate, cap removed 2026-10-09), 4 (paper per config) |
 
 ### ❌ Lost (not carried forward)
 | Fred Capability | Status |
