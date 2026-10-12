@@ -47,8 +47,8 @@ DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 PAPER_STATE_PATH = DATA_DIR / "paper_state.json"
 
-# The user actively trades these on the live bot -- NEVER paper-trade them.
-FOREIGN_PAIRS = {"BTC/USD", "ETH/USD", "SOL/USD"}
+# All SYMBOLS tradeable (user owns 0 live pairs; no paper/live exclusions).
+FOREIGN_PAIRS = set()
 
 log = logging.getLogger("Nikola")
 
@@ -973,7 +973,7 @@ class Daemon:
             # so it matches the position symbol from fetch_positions()
             psym = normalize_btln_symbol(psym)
             by_pair.setdefault(psym, []).append(o)
-        user_owned = {"SOL/USD", "ETH/USD"}  # never touch — user-owned pairs
+        user_owned = set()  # user owns 0 live pairs; recover all SYMBOLS
         recovered = 0
         skipped = 0
         for p in ex_positions:
@@ -1140,10 +1140,8 @@ class Daemon:
         # in live mode, trade all pairs — foreign blocking not needed.
         held = set(self.active.keys())
         if self.paper:
-            held |= FOREIGN_PAIRS
-        else:
-            # Live: SOL and ETH are user-owned (leave as-is); TRX, PAXG, and rest are NIKOLA's
-            held |= {"SOL/USD", "ETH/USD"}
+            held |= FOREIGN_PAIRS  # FOREIGN_PAIRS is now empty (user owns 0)
+        # Live: all SYMBOLS are NIKOLA's (user owns 0 live pairs; no exclusions)
         candidates = self.mtf.find_best_signals(
             ranked, n=3, held=held, cooldowns=self.cooldowns,
         )
