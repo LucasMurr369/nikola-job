@@ -1,4 +1,0 @@
-BOT_NAME: Nikola
-PID: 16796
-LOG_FILE: nikola_live.log
-REPO: /c/Users/mrluk/nikola
